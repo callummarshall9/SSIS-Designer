@@ -142,6 +142,14 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
                     // In production, serialize the full model back to XML
                     return;
                 }
+
+                // Webview toolbar command invocations
+                case 'command': {
+                    if (message.command) {
+                        await vscode.commands.executeCommand(message.command);
+                    }
+                    return;
+                }
             }
         });
 

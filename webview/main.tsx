@@ -379,12 +379,57 @@ function App() {
               ◀ Control Flow
             </button>
           )}
+
+          {/* Package actions */}
+          <button
+            className="ssis-toolbar__btn"
+            onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.newPackage' })}
+            title="Create a new SSIS package"
+          >
+            📄 New Package
+          </button>
+          <button
+            className="ssis-toolbar__btn"
+            onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.validatePackage' })}
+            title="Validate the current package"
+          >
+            ✅ Validate
+          </button>
+          <button
+            className="ssis-toolbar__btn"
+            onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.exportIspac' })}
+            title="Export project as .ispac"
+          >
+            📦 Export ISPAC
+          </button>
+
+          <div className="ssis-toolbar__separator" />
+
+          {/* Deployment & execution */}
+          <button
+            className="ssis-toolbar__btn"
+            onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.deployProject' })}
+            title="Deploy project to SSISDB"
+          >
+            🚀 Deploy
+          </button>
+          <button
+            className="ssis-toolbar__btn"
+            onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.executePackage' })}
+            title="Execute package on server (F5)"
+          >
+            ▶ Execute
+          </button>
+
+          <div className="ssis-toolbar__separator" />
+
+          {/* Panels */}
           <button
             className="ssis-toolbar__btn"
             onClick={() => setConnMgrVisible(true)}
             title="Connection Managers (Ctrl+Shift+C)"
           >
-            🔗 Connection Managers
+            🔗 Connections
           </button>
           {connectedToServer && (
             <button
@@ -392,7 +437,7 @@ function App() {
               onClick={() => setExecutionHistoryVisible(true)}
               title="View Execution History"
             >
-              📋 View History
+              📋 History
             </button>
           )}
         </div>

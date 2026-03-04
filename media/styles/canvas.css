@@ -874,6 +874,14 @@ textarea:focus-visible {
     color: var(--active-fg);
 }
 
+.ssis-toolbar__separator {
+    width: 1px;
+    height: 18px;
+    background: var(--panel-border);
+    margin: 0 4px;
+    flex-shrink: 0;
+}
+
 /* =========================================================================
    Bottom Tab Bar
    ========================================================================= */

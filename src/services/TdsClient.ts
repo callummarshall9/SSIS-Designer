@@ -209,20 +209,34 @@ export class TdsClient {
 
   async testConnection(connectionString: string): Promise<{ success: boolean; error?: string }> {
     let testPool: sql.ConnectionPool | undefined;
+    let rawError: string | undefined;
+
     try {
       // Try connecting with the raw connection string first (mssql supports it natively)
       testPool = new sql.ConnectionPool(connectionString);
       await testPool.connect();
       await testPool.close();
       return { success: true };
-    } catch {
-      // If raw string fails, fall back to parsing into a config object
+    } catch (err: any) {
+      rawError = err?.message ?? err?.originalError?.message ?? 'Unknown error';
+      console.error('[TdsClient] Raw connection string attempt failed:', rawError, err);
       try { testPool?.close(); } catch { /* ignore cleanup */ }
     }
 
+    let parsedConfig: sql.config;
     try {
-      const config = this.parseConnectionString(connectionString);
-      testPool = new sql.ConnectionPool(config);
+      parsedConfig = this.parseConnectionString(connectionString);
+    } catch (parseErr: any) {
+      const parseMessage = parseErr?.message ?? 'Failed to parse connection string';
+      console.error('[TdsClient] Connection string parsing failed:', parseMessage, parseErr);
+      return {
+        success: false,
+        error: `Connection string parse error: ${parseMessage}${rawError ? ` (raw attempt: ${rawError})` : ''}`,
+      };
+    }
+
+    try {
+      testPool = new sql.ConnectionPool(parsedConfig);
       await testPool.connect();
       await testPool.close();
       return { success: true };
@@ -232,7 +246,11 @@ export class TdsClient {
         err?.message ??
         err?.originalError?.message ??
         'Unknown connection error';
-      return { success: false, error: errorMessage };
+      console.error('[TdsClient] Parsed config connection attempt failed:', errorMessage, err);
+      return {
+        success: false,
+        error: `${errorMessage}${rawError && rawError !== errorMessage ? ` (raw attempt: ${rawError})` : ''}`,
+      };
     }
   }
 
