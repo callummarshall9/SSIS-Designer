@@ -43,7 +43,7 @@ jobs:
         run: npm install -g @vscode/vsce
 
       - name: Package VSIX
-        run: vsce package --no-dependencies
+        run: vsce package
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
