@@ -12,6 +12,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onCommand:ssis.newPackage",
     "onCustomEditor:ssisDesigner.dtsxEditor",
     "onView:ssisDesigner.catalogExplorer",
     "onView:ssisDesigner.connectionManager"
