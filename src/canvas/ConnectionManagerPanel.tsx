@@ -17,14 +17,25 @@ export type ConnectionType =
   | 'SMTP'
   | 'MSOLAP';
 
+type AuthenticationMode =
+  | 'Windows'
+  | 'SQL'
+  | 'EntraPassword'
+  | 'EntraIntegrated'
+  | 'EntraInteractive'
+  | 'EntraServicePrincipal';
+
 interface OleDbFields {
   server: string;
   database: string;
-  authentication: 'Windows' | 'SQL';
+  authentication: AuthenticationMode;
   username: string;
   password: string;
   encrypt: boolean;
   trustServerCertificate: boolean;
+  commandTimeout: number;
+  persistSecurityInfo: boolean;
+  multipleActiveResultSets: boolean;
 }
 
 interface FlatFileFields {
@@ -45,8 +56,14 @@ interface AdoNetFields {
   server: string;
   database: string;
   provider: string;
+  authentication: AuthenticationMode;
+  username: string;
+  password: string;
   encrypt: boolean;
   trustServerCertificate: boolean;
+  commandTimeout: number;
+  persistSecurityInfo: boolean;
+  multipleActiveResultSets: boolean;
 }
 
 interface RawFields {
@@ -106,13 +123,13 @@ function newGuid(): string {
 function defaultFieldsForType(type: ConnectionType): ConnectionFields {
   switch (type) {
     case 'OLEDB':
-      return { server: '', database: '', authentication: 'Windows', username: '', password: '', encrypt: true, trustServerCertificate: false } as OleDbFields;
+      return { server: '', database: '', authentication: 'Windows', username: '', password: '', encrypt: true, trustServerCertificate: false, commandTimeout: 30, persistSecurityInfo: false, multipleActiveResultSets: false } as OleDbFields;
     case 'FLATFILE':
       return { filePath: '', columnDelimiter: ',', textQualifier: '"', headerRowDelimiter: '\\r\\n', hasHeaderRow: true } as FlatFileFields;
     case 'EXCEL':
       return { filePath: '', excelVersion: 'Excel 2007+', firstRowHasHeaders: true } as ExcelFields;
     case 'ADO.NET':
-      return { server: '', database: '', provider: 'System.Data.SqlClient', encrypt: true, trustServerCertificate: false } as AdoNetFields;
+      return { server: '', database: '', provider: 'System.Data.SqlClient', authentication: 'Windows', username: '', password: '', encrypt: true, trustServerCertificate: false, commandTimeout: 30, persistSecurityInfo: false, multipleActiveResultSets: false } as AdoNetFields;
     default:
       return { connectionString: '' } as RawFields;
   }
@@ -127,13 +144,32 @@ function buildConnectionString(type: ConnectionType, fields: ConnectionFields): 
         `Data Source=${f.server}`,
         `Initial Catalog=${f.database}`,
       ];
-      if (f.authentication === 'Windows') {
-        parts.push('Integrated Security=SSPI');
-      } else {
-        parts.push(`User ID=${f.username}`, `Password=${f.password}`);
+      switch (f.authentication) {
+        case 'Windows':
+          parts.push('Integrated Security=SSPI');
+          break;
+        case 'SQL':
+          parts.push(`User ID=${f.username}`, `Password=${f.password}`);
+          break;
+        case 'EntraPassword':
+          parts.push('Authentication=ActiveDirectoryPassword', `User ID=${f.username}`, `Password=${f.password}`);
+          break;
+        case 'EntraIntegrated':
+          parts.push('Authentication=ActiveDirectoryIntegrated');
+          break;
+        case 'EntraInteractive':
+          parts.push('Authentication=ActiveDirectoryInteractive');
+          if (f.username) { parts.push(`User ID=${f.username}`); }
+          break;
+        case 'EntraServicePrincipal':
+          parts.push('Authentication=ActiveDirectoryServicePrincipal', `User ID=${f.username}`, `Password=${f.password}`);
+          break;
       }
       parts.push(`Encrypt=${f.encrypt ? 'yes' : 'no'}`);
       parts.push(`TrustServerCertificate=${f.trustServerCertificate ? 'yes' : 'no'}`);
+      parts.push(`Command Timeout=${f.commandTimeout ?? 30}`);
+      parts.push(`Persist Security Info=${f.persistSecurityInfo ? 'True' : 'False'}`);
+      parts.push(`MultipleActiveResultSets=${f.multipleActiveResultSets ? 'True' : 'False'}`);
       return parts.join(';') + ';';
     }
     case 'FLATFILE': {
@@ -157,7 +193,38 @@ function buildConnectionString(type: ConnectionType, fields: ConnectionFields): 
     }
     case 'ADO.NET': {
       const f = fields as AdoNetFields;
-      return `Data Source=${f.server};Initial Catalog=${f.database};Provider=${f.provider};Integrated Security=SSPI;Encrypt=${f.encrypt ? 'yes' : 'no'};TrustServerCertificate=${f.trustServerCertificate ? 'yes' : 'no'};`;
+      const parts = [
+        `Data Source=${f.server}`,
+        `Initial Catalog=${f.database}`,
+        `Provider=${f.provider}`,
+      ];
+      switch (f.authentication) {
+        case 'Windows':
+          parts.push('Integrated Security=SSPI');
+          break;
+        case 'SQL':
+          parts.push(`User ID=${f.username}`, `Password=${f.password}`);
+          break;
+        case 'EntraPassword':
+          parts.push('Authentication=ActiveDirectoryPassword', `User ID=${f.username}`, `Password=${f.password}`);
+          break;
+        case 'EntraIntegrated':
+          parts.push('Authentication=ActiveDirectoryIntegrated');
+          break;
+        case 'EntraInteractive':
+          parts.push('Authentication=ActiveDirectoryInteractive');
+          if (f.username) { parts.push(`User ID=${f.username}`); }
+          break;
+        case 'EntraServicePrincipal':
+          parts.push('Authentication=ActiveDirectoryServicePrincipal', `User ID=${f.username}`, `Password=${f.password}`);
+          break;
+      }
+      parts.push(`Encrypt=${f.encrypt ? 'yes' : 'no'}`);
+      parts.push(`TrustServerCertificate=${f.trustServerCertificate ? 'yes' : 'no'}`);
+      parts.push(`Command Timeout=${f.commandTimeout ?? 30}`);
+      parts.push(`Persist Security Info=${f.persistSecurityInfo ? 'True' : 'False'}`);
+      parts.push(`MultipleActiveResultSets=${f.multipleActiveResultSets ? 'True' : 'False'}`);
+      return parts.join(';') + ';';
     }
     default: {
       return (fields as RawFields).connectionString ?? '';
@@ -185,6 +252,38 @@ interface FieldEditorProps<T> {
   onChange: (updates: Partial<T>) => void;
 }
 
+/** Returns true when the selected auth mode requires a username field. */
+function authNeedsUsername(auth: AuthenticationMode): boolean {
+  return auth === 'SQL' || auth === 'EntraPassword' || auth === 'EntraInteractive' || auth === 'EntraServicePrincipal';
+}
+
+/** Returns true when the selected auth mode requires a password field. */
+function authNeedsPassword(auth: AuthenticationMode): boolean {
+  return auth === 'SQL' || auth === 'EntraPassword' || auth === 'EntraServicePrincipal';
+}
+
+/** Label for the username field depending on the auth mode. */
+function usernameLabel(auth: AuthenticationMode): string {
+  if (auth === 'EntraServicePrincipal') { return 'Application (Client) ID'; }
+  if (auth === 'EntraInteractive') { return 'User (login hint, optional)'; }
+  return 'Username';
+}
+
+/** Label for the password field depending on the auth mode. */
+function passwordLabel(auth: AuthenticationMode): string {
+  if (auth === 'EntraServicePrincipal') { return 'Client Secret'; }
+  return 'Password';
+}
+
+const AUTH_OPTIONS: { value: AuthenticationMode; label: string }[] = [
+  { value: 'Windows', label: 'Windows Authentication' },
+  { value: 'SQL', label: 'SQL Server Authentication' },
+  { value: 'EntraPassword', label: 'Microsoft Entra Password' },
+  { value: 'EntraIntegrated', label: 'Microsoft Entra Integrated' },
+  { value: 'EntraInteractive', label: 'Microsoft Entra Interactive (MFA)' },
+  { value: 'EntraServicePrincipal', label: 'Microsoft Entra Service Principal' },
+];
+
 const OleDbEditor: React.FC<FieldEditorProps<OleDbFields>> = ({ fields, onChange }) => (
   <div className="ssis-cm-fields">
     <div className="ssis-cm-field">
@@ -209,31 +308,32 @@ const OleDbEditor: React.FC<FieldEditorProps<OleDbFields>> = ({ fields, onChange
       <label>Authentication</label>
       <select
         value={fields.authentication}
-        onChange={(e) => onChange({ authentication: e.target.value as 'Windows' | 'SQL' })}
+        onChange={(e) => onChange({ authentication: e.target.value as AuthenticationMode, username: '', password: '' })}
       >
-        <option value="Windows">Windows Authentication</option>
-        <option value="SQL">SQL Server Authentication</option>
+        {AUTH_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
       </select>
     </div>
-    {fields.authentication === 'SQL' && (
-      <>
-        <div className="ssis-cm-field">
-          <label>Username</label>
-          <input
-            type="text"
-            value={fields.username}
-            onChange={(e) => onChange({ username: e.target.value })}
-          />
-        </div>
-        <div className="ssis-cm-field">
-          <label>Password</label>
-          <input
-            type="password"
-            value={fields.password}
-            onChange={(e) => onChange({ password: e.target.value })}
-          />
-        </div>
-      </>
+    {authNeedsUsername(fields.authentication) && (
+      <div className="ssis-cm-field">
+        <label>{usernameLabel(fields.authentication)}</label>
+        <input
+          type="text"
+          value={fields.username}
+          onChange={(e) => onChange({ username: e.target.value })}
+        />
+      </div>
+    )}
+    {authNeedsPassword(fields.authentication) && (
+      <div className="ssis-cm-field">
+        <label>{passwordLabel(fields.authentication)}</label>
+        <input
+          type="password"
+          value={fields.password}
+          onChange={(e) => onChange({ password: e.target.value })}
+        />
+      </div>
     )}
     <div className="ssis-cm-field ssis-cm-field--checkbox">
       <label>
@@ -253,6 +353,35 @@ const OleDbEditor: React.FC<FieldEditorProps<OleDbFields>> = ({ fields, onChange
           onChange={(e) => onChange({ trustServerCertificate: e.target.checked })}
         />
         Trust server certificate
+      </label>
+    </div>
+    <div className="ssis-cm-field">
+      <label>Command Timeout (seconds)</label>
+      <input
+        type="number"
+        min={0}
+        value={fields.commandTimeout}
+        onChange={(e) => onChange({ commandTimeout: parseInt(e.target.value, 10) || 0 })}
+      />
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.persistSecurityInfo}
+          onChange={(e) => onChange({ persistSecurityInfo: e.target.checked })}
+        />
+        Persist Security Info
+      </label>
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.multipleActiveResultSets}
+          onChange={(e) => onChange({ multipleActiveResultSets: e.target.checked })}
+        />
+        Multiple Active Result Sets (MARS)
       </label>
     </div>
   </div>
@@ -370,6 +499,37 @@ const AdoNetEditor: React.FC<FieldEditorProps<AdoNetFields>> = ({ fields, onChan
         ))}
       </select>
     </div>
+    <div className="ssis-cm-field">
+      <label>Authentication</label>
+      <select
+        value={fields.authentication}
+        onChange={(e) => onChange({ authentication: e.target.value as AuthenticationMode, username: '', password: '' })}
+      >
+        {AUTH_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+    {authNeedsUsername(fields.authentication) && (
+      <div className="ssis-cm-field">
+        <label>{usernameLabel(fields.authentication)}</label>
+        <input
+          type="text"
+          value={fields.username}
+          onChange={(e) => onChange({ username: e.target.value })}
+        />
+      </div>
+    )}
+    {authNeedsPassword(fields.authentication) && (
+      <div className="ssis-cm-field">
+        <label>{passwordLabel(fields.authentication)}</label>
+        <input
+          type="password"
+          value={fields.password}
+          onChange={(e) => onChange({ password: e.target.value })}
+        />
+      </div>
+    )}
     <div className="ssis-cm-field ssis-cm-field--checkbox">
       <label>
         <input
@@ -388,6 +548,35 @@ const AdoNetEditor: React.FC<FieldEditorProps<AdoNetFields>> = ({ fields, onChan
           onChange={(e) => onChange({ trustServerCertificate: e.target.checked })}
         />
         Trust server certificate
+      </label>
+    </div>
+    <div className="ssis-cm-field">
+      <label>Command Timeout (seconds)</label>
+      <input
+        type="number"
+        min={0}
+        value={fields.commandTimeout}
+        onChange={(e) => onChange({ commandTimeout: parseInt(e.target.value, 10) || 0 })}
+      />
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.persistSecurityInfo}
+          onChange={(e) => onChange({ persistSecurityInfo: e.target.checked })}
+        />
+        Persist Security Info
+      </label>
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.multipleActiveResultSets}
+          onChange={(e) => onChange({ multipleActiveResultSets: e.target.checked })}
+        />
+        Multiple Active Result Sets (MARS)
       </label>
     </div>
   </div>
@@ -568,7 +757,7 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
     }
     setEditing(null);
     setTestStatus('idle');
-  }, [editing, connectionManagers, addConnectionManager, updateConnectionManager, postMessage]);
+  }, [editing, connectionManagers, addConnectionManager, updateConnectionManager, postMessage, rawMode, rawConnectionString]);
 
   const handleCancel = useCallback(() => {
     setEditing(null);

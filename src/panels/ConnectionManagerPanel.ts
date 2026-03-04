@@ -80,7 +80,7 @@ export class ConnectionManagerPanelRelay {
   public static buildOleDbConnectionString(fields: {
     server: string;
     database: string;
-    authentication: 'Windows' | 'SQL';
+    authentication: 'Windows' | 'SQL' | 'EntraPassword' | 'EntraIntegrated' | 'EntraInteractive' | 'EntraServicePrincipal';
     username?: string;
     password?: string;
   }): string {
@@ -89,10 +89,26 @@ export class ConnectionManagerPanelRelay {
       `Data Source=${fields.server}`,
       `Initial Catalog=${fields.database}`,
     ];
-    if (fields.authentication === 'Windows') {
-      parts.push('Integrated Security=SSPI');
-    } else {
-      parts.push(`User ID=${fields.username ?? ''}`, `Password=${fields.password ?? ''}`);
+    switch (fields.authentication) {
+      case 'Windows':
+        parts.push('Integrated Security=SSPI');
+        break;
+      case 'SQL':
+        parts.push(`User ID=${fields.username ?? ''}`, `Password=${fields.password ?? ''}`);
+        break;
+      case 'EntraPassword':
+        parts.push('Authentication=ActiveDirectoryPassword', `User ID=${fields.username ?? ''}`, `Password=${fields.password ?? ''}`);
+        break;
+      case 'EntraIntegrated':
+        parts.push('Authentication=ActiveDirectoryIntegrated');
+        break;
+      case 'EntraInteractive':
+        parts.push('Authentication=ActiveDirectoryInteractive');
+        if (fields.username) { parts.push(`User ID=${fields.username}`); }
+        break;
+      case 'EntraServicePrincipal':
+        parts.push('Authentication=ActiveDirectoryServicePrincipal', `User ID=${fields.username ?? ''}`, `Password=${fields.password ?? ''}`);
+        break;
     }
     return parts.join(';') + ';';
   }

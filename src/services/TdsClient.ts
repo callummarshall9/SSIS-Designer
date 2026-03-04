@@ -18,6 +18,8 @@ export interface TdsConnectionConfig {
   trustedConnection?: boolean;
   encrypt?: boolean;
   trustServerCertificate?: boolean;
+  /** Entra / AAD authentication mode understood by the mssql (tedious) driver. */
+  authenticationType?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +166,16 @@ export class TdsClient {
         },
       };
 
-      if (config.trustedConnection) {
+      if (config.authenticationType) {
+        // Entra / Azure AD authentication
+        (sqlConfig as any).authentication = {
+          type: config.authenticationType,
+          options: {
+            userName: config.user ?? '',
+            password: config.password ?? '',
+          },
+        };
+      } else if (config.trustedConnection) {
         (sqlConfig as any).authentication = {
           type: 'ntlm',
           options: { domain: '' },
@@ -198,6 +209,17 @@ export class TdsClient {
 
   async testConnection(connectionString: string): Promise<{ success: boolean; error?: string }> {
     let testPool: sql.ConnectionPool | undefined;
+    try {
+      // Try connecting with the raw connection string first (mssql supports it natively)
+      testPool = new sql.ConnectionPool(connectionString);
+      await testPool.connect();
+      await testPool.close();
+      return { success: true };
+    } catch {
+      // If raw string fails, fall back to parsing into a config object
+      try { testPool?.close(); } catch { /* ignore cleanup */ }
+    }
+
     try {
       const config = this.parseConnectionString(connectionString);
       testPool = new sql.ConnectionPool(config);
@@ -829,36 +851,88 @@ export class TdsClient {
     const password = parts.get('password') ?? parts.get('pwd') ?? '';
     const integratedSecurity = parts.get('integrated security')?.toLowerCase();
     const trusted = integratedSecurity === 'sspi' || integratedSecurity === 'true';
+    const authKeyword = parts.get('authentication')?.toLowerCase() ?? '';
 
     const encryptRaw = parts.get('encrypt')?.toLowerCase();
-    const encrypt = encryptRaw === 'yes' || encryptRaw === 'true' || encryptRaw === undefined;
+    const encrypt = encryptRaw === undefined || encryptRaw === 'yes' || encryptRaw === 'true' || encryptRaw === 'mandatory';
     const trustCertRaw = parts.get('trustservercertificate')?.toLowerCase();
     const trustServerCertificate = trustCertRaw === 'yes' || trustCertRaw === 'true';
 
+    // Command Timeout / Connect Timeout → requestTimeout (ms)
+    const timeoutRaw = parts.get('command timeout') ?? parts.get('connect timeout') ?? parts.get('connection timeout');
+    const requestTimeout = timeoutRaw ? parseInt(timeoutRaw, 10) * 1000 : undefined;
+
     let host = server;
     let port = 1433;
-    if (server.includes(',')) {
-      const [h, p] = server.split(',');
+    let instanceName: string | undefined;
+
+    // Strip protocol prefix (e.g. "tcp:host" → "host")
+    if (/^[a-z]+:/i.test(host)) {
+      host = host.replace(/^[a-z]+:/i, '');
+    }
+
+    // Handle "." and "(local)" as localhost aliases
+    if (host === '.' || host.toLowerCase() === '(local)') {
+      host = 'localhost';
+    }
+
+    // Handle named instances: "host\instance" or ".\instance"
+    if (host.includes('\\')) {
+      const [h, inst] = host.split('\\', 2);
+      host = (h === '.' || h.toLowerCase() === '(local)' || h === '') ? 'localhost' : h;
+      instanceName = inst;
+      // Do not set a fixed port — the SQL Browser service resolves it
+      port = 0;
+    }
+
+    // Handle port override: "host,port"
+    if (host.includes(',')) {
+      const [h, p] = host.split(',');
       host = h;
       port = parseInt(p, 10) || 1433;
     }
 
     const config: sql.config = {
       server: host,
-      port,
       database,
+      ...(requestTimeout !== undefined ? { requestTimeout } : {}),
       options: {
         encrypt,
         trustServerCertificate,
+        ...(instanceName ? { instanceName } : {}),
       },
     };
 
-    if (trusted) {
+    // Only set port when not using a named instance (SQL Browser resolves the port)
+    if (!instanceName || port !== 0) {
+      config.port = port || 1433;
+    }
+
+    // Map OLE DB / ADO.NET authentication keywords to tedious driver types
+    const entraTypeMap: Record<string, string> = {
+      'activedirectorypassword': 'azure-active-directory-password',
+      'activedirectoryintegrated': 'azure-active-directory-default',
+      'activedirectoryinteractive': 'azure-active-directory-interactive',
+      'activedirectoryserviceprincipal': 'azure-active-directory-service-principal-secret',
+    };
+
+    const tediousAuthType = entraTypeMap[authKeyword];
+
+    if (tediousAuthType) {
+      // Entra / Azure AD authentication
+      (config as any).authentication = {
+        type: tediousAuthType,
+        options: {
+          userName: user,
+          password: password,
+        },
+      };
+    } else if (trusted) {
       (config as any).authentication = {
         type: 'ntlm',
         options: { domain: '' },
       };
-    } else {
+    } else if (user) {
       config.user = user;
       config.password = password;
     }
