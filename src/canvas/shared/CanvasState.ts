@@ -67,6 +67,7 @@ export interface CanvasState extends CanvasSnapshot {
   removeNode: (nodeId: string) => void;
   moveNode: (nodeId: string, x: number, y: number) => void;
   updateNodeData: (nodeId: string, data: Partial<SsisExecutable>) => void;
+  reparentNode: (nodeId: string, parentId: string | undefined) => void;
 
   // Actions – edge
   addEdge: (edge: Edge<PrecedenceConstraint>) => void;
@@ -123,6 +124,53 @@ export interface CanvasState extends CanvasSnapshot {
 
 const MAX_HISTORY = 50;
 
+/** Executable types that act as containers and can hold child nodes. */
+export const CONTAINER_TYPES = new Set(['STOCK:FORLOOP', 'STOCK:FOREACHLOOP', 'STOCK:SEQUENCE']);
+
+/** Header height consumed by the container chrome (top bar + label). */
+const CONTAINER_HEADER_HEIGHT = 40;
+/** Padding inside the container for child nodes. */
+const CONTAINER_PADDING = 15;
+
+/**
+ * Find the innermost container node that encloses a given absolute position.
+ * Skips the node identified by `excludeId` (so a node can't parent itself).
+ */
+export function findContainerAtPosition(
+  nodes: Node<SsisExecutable>[],
+  x: number,
+  y: number,
+  excludeId?: string,
+): Node<SsisExecutable> | undefined {
+  // Gather containers with their absolute positions
+  const containers: { node: Node<SsisExecutable>; absX: number; absY: number; area: number }[] = [];
+  for (const n of nodes) {
+    if (excludeId && n.id === excludeId) { continue; }
+    if (!CONTAINER_TYPES.has(n.data.executableType)) { continue; }
+    // Compute absolute position by walking up the parentNode chain
+    let absX = n.position.x;
+    let absY = n.position.y;
+    let current: Node<SsisExecutable> | undefined = n;
+    while (current?.parentNode) {
+      const parent = nodes.find(p => p.id === current!.parentNode);
+      if (!parent) { break; }
+      absX += parent.position.x;
+      absY += parent.position.y;
+      current = parent;
+    }
+    const w = (n.style?.width as number) || n.data.width || 300;
+    const h = (n.style?.height as number) || n.data.height || 200;
+    // Check if point is inside the container body (below the header)
+    if (x >= absX && x <= absX + w && y >= absY + CONTAINER_HEADER_HEIGHT && y <= absY + h) {
+      containers.push({ node: n, absX, absY, area: w * h });
+    }
+  }
+  if (containers.length === 0) { return undefined; }
+  // Return the smallest (innermost) container
+  containers.sort((a, b) => a.area - b.area);
+  return containers[0].node;
+}
+
 // ---------------------------------------------------------------------------
 // VS Code API accessor (lazy – only available inside a webview)
 // ---------------------------------------------------------------------------
@@ -162,6 +210,32 @@ function pushHistory(past: CanvasSnapshot[], current: CanvasSnapshot): CanvasSna
   return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
 }
 
+/**
+ * Sort nodes so that children always appear after their parent in the array.
+ * React Flow requires this ordering for `parentNode` rendering to work.
+ */
+function sortNodesByParentage(nodes: Node<SsisExecutable>[]): Node<SsisExecutable>[] {
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const visited = new Set<string>();
+  const result: Node<SsisExecutable>[] = [];
+
+  function visit(id: string) {
+    if (visited.has(id)) { return; }
+    const node = byId.get(id);
+    if (!node) { return; }
+    if (node.parentNode) {
+      visit(node.parentNode); // ensure parent comes first
+    }
+    visited.add(id);
+    result.push(node);
+  }
+
+  for (const n of nodes) {
+    visit(n.id);
+  }
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -186,10 +260,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   addNode: (node) => {
     const state = get();
+    const newNodes = sortNodesByParentage([...state.nodes, node]);
     set({
       past: pushHistory(state.past, state),
       future: [],
-      nodes: [...state.nodes, node],
+      nodes: newNodes,
       dirty: true,
     });
     get().syncToExtension();
@@ -197,10 +272,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   removeNode: (nodeId) => {
     const state = get();
+    // When removing a container, unparent its children back to the canvas
+    const removedNode = state.nodes.find(n => n.id === nodeId);
+    let updatedNodes = state.nodes.filter(n => n.id !== nodeId);
+    if (removedNode && CONTAINER_TYPES.has(removedNode.data.executableType)) {
+      updatedNodes = updatedNodes.map(n => {
+        if (n.parentId !== nodeId) { return n; }
+        // Convert child position to absolute
+        const absX = n.position.x + removedNode.position.x;
+        const absY = n.position.y + removedNode.position.y;
+        const patched = {
+          ...n,
+          position: { x: absX, y: absY },
+          data: { ...n.data, x: absX, y: absY },
+        };
+        delete (patched as any).parentNode;
+        delete (patched as any).extent;
+        delete (patched as any).expandParent;
+        return patched;
+      });
+    }
     set({
       past: pushHistory(state.past, state),
       future: [],
-      nodes: state.nodes.filter(n => n.id !== nodeId),
+      nodes: updatedNodes,
       // Also remove edges connected to this node
       edges: state.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
       dirty: true,
@@ -233,6 +328,68 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           ? { ...n, data: { ...n.data, ...data } }
           : n
       ),
+      dirty: true,
+    });
+    get().syncToExtension();
+  },
+
+  reparentNode: (nodeId, parentId) => {
+    const state = get();
+    const child = state.nodes.find(n => n.id === nodeId);
+    if (!child) { return; }
+    const currentParent = child.parentNode;
+    if (currentParent === parentId) { return; } // no change
+
+    // Compute child's current absolute position
+    let absX = child.position.x;
+    let absY = child.position.y;
+    if (currentParent) {
+      const cp = state.nodes.find(n => n.id === currentParent);
+      if (cp) { absX += cp.position.x; absY += cp.position.y; }
+    }
+
+    // Compute position relative to new parent (or absolute if unparenting)
+    let newX = absX;
+    let newY = absY;
+    if (parentId) {
+      const np = state.nodes.find(n => n.id === parentId);
+      if (np) {
+        newX = absX - np.position.x;
+        newY = absY - np.position.y;
+      }
+      // Clamp inside parent bounds
+      newX = Math.max(CONTAINER_PADDING, newX);
+      newY = Math.max(CONTAINER_HEADER_HEIGHT, newY);
+    }
+
+    // Build the new nodes array — React Flow requires children to appear *after*
+    // their parent in the array for `parentNode` rendering to work.
+    const updatedNodes = state.nodes.map(n => {
+      if (n.id !== nodeId) { return n; }
+      const patched: Node<SsisExecutable> = {
+        ...n,
+        position: { x: newX, y: newY },
+        data: { ...n.data, x: newX, y: newY },
+        parentNode: parentId,
+        extent: parentId ? 'parent' as const : undefined,
+        expandParent: parentId ? true : undefined,
+      };
+      // React Flow: if parentNode is undefined we must *delete* the key, not set undefined
+      if (!parentId) {
+        delete (patched as any).parentNode;
+        delete (patched as any).extent;
+        delete (patched as any).expandParent;
+      }
+      return patched;
+    });
+
+    // Ensure child nodes appear after their parent in the array
+    const sorted = sortNodesByParentage(updatedNodes);
+
+    set({
+      past: pushHistory(state.past, state),
+      future: [],
+      nodes: sorted,
       dirty: true,
     });
     get().syncToExtension();

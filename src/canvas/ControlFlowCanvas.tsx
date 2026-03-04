@@ -14,12 +14,13 @@ import ReactFlow, {
   applyNodeChanges,
   applyEdgeChanges,
   XYPosition,
+  NodeDragHandler,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import { nodeTypes } from './nodes';
 import { edgeTypes } from './edges';
-import { useCanvasStore } from './shared/CanvasState';
+import { useCanvasStore, findContainerAtPosition, CONTAINER_TYPES } from './shared/CanvasState';
 import { SsisExecutable, PrecedenceConstraint } from '../models/SsisPackageModel';
 import { getControlFlowNodeType } from '../models/CanvasModel';
 
@@ -84,6 +85,7 @@ const ControlFlowCanvasInner: React.FC = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   // Zustand store
   const nodes = useCanvasStore((s) => s.nodes);
@@ -93,6 +95,7 @@ const ControlFlowCanvasInner: React.FC = () => {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const removeEdge = useCanvasStore((s) => s.removeEdge);
   const moveNode = useCanvasStore((s) => s.moveNode);
+  const reparentNode = useCanvasStore((s) => s.reparentNode);
 
   // -----------------------------------------------------------------------
   // Node changes (position, selection, removal via keyboard)
@@ -111,6 +114,57 @@ const ControlFlowCanvasInner: React.FC = () => {
       }
     },
     [nodes, moveNode]
+  );
+
+  // -----------------------------------------------------------------------
+  // Node drag handlers — highlight containers & reparent on drop
+  // -----------------------------------------------------------------------
+
+  const onNodeDrag: NodeDragHandler = useCallback(
+    (_event, node) => {
+      if (!rfInstance) { return; }
+      // Compute absolute position of the dragged node
+      let absX = node.position.x;
+      let absY = node.position.y;
+      if (node.parentNode) {
+        const parent = nodes.find(n => n.id === node.parentNode);
+        if (parent) {
+          absX += parent.position.x;
+          absY += parent.position.y;
+        }
+      }
+      const centerX = absX + ((node.width ?? 200) / 2);
+      const centerY = absY + ((node.height ?? 80) / 2);
+      const container = findContainerAtPosition(nodes, centerX, centerY, node.id);
+      setDropTargetId(container?.id ?? null);
+    },
+    [rfInstance, nodes]
+  );
+
+  const onNodeDragStop: NodeDragHandler = useCallback(
+    (_event, node) => {
+      // Compute absolute position of the dragged node
+      let absX = node.position.x;
+      let absY = node.position.y;
+      if (node.parentNode) {
+        const parent = nodes.find(n => n.id === node.parentNode);
+        if (parent) {
+          absX += parent.position.x;
+          absY += parent.position.y;
+        }
+      }
+      const centerX = absX + ((node.width ?? 200) / 2);
+      const centerY = absY + ((node.height ?? 80) / 2);
+      const container = findContainerAtPosition(nodes, centerX, centerY, node.id);
+      const newParentId = container?.id;
+      const currentParentId = node.parentNode;
+
+      if (newParentId !== currentParentId) {
+        reparentNode(node.id, newParentId);
+      }
+      setDropTargetId(null);
+    },
+    [nodes, reparentNode]
   );
 
   // -----------------------------------------------------------------------
@@ -177,14 +231,29 @@ const ControlFlowCanvasInner: React.FC = () => {
       const { width, height } = defaultDimensions(executableType);
       const id = newGuid();
 
+      // Detect if dropped inside a container
+      const container = findContainerAtPosition(nodes, position.x, position.y);
+
+      // Compute position relative to container (if any)
+      let nodePosition = position;
+      if (container) {
+        nodePosition = {
+          x: position.x - container.position.x,
+          y: position.y - container.position.y,
+        };
+        // Clamp inside container body
+        nodePosition.x = Math.max(15, nodePosition.x);
+        nodePosition.y = Math.max(40, nodePosition.y);
+      }
+
       const executable: SsisExecutable = {
         id,
         dtsId: id,
         objectName: buildDefaultName(executableType),
         executableType,
         description: '',
-        x: position.x,
-        y: position.y,
+        x: nodePosition.x,
+        y: nodePosition.y,
         width,
         height,
         properties: {},
@@ -197,14 +266,20 @@ const ControlFlowCanvasInner: React.FC = () => {
       const node: Node<SsisExecutable> = {
         id,
         type: nodeType,
-        position,
+        position: nodePosition,
         data: executable,
         style: { width, height },
+        ...(container ? {
+          parentNode: container.id,
+          extent: 'parent' as const,
+          expandParent: true,
+        } : {}),
       };
 
       addNode(node);
+      setDropTargetId(null);
     },
-    [rfInstance, addNode]
+    [rfInstance, addNode, nodes]
   );
 
   // -----------------------------------------------------------------------
@@ -293,6 +368,25 @@ const ControlFlowCanvasInner: React.FC = () => {
   );
 
   // -----------------------------------------------------------------------
+  // Apply drop-target highlight to container nodes while dragging
+  // -----------------------------------------------------------------------
+
+  const displayNodes = useMemo(() => {
+    if (!dropTargetId) { return nodes; }
+    return nodes.map(n => {
+      if (n.id !== dropTargetId) { return n; }
+      return {
+        ...n,
+        style: {
+          ...n.style,
+          boxShadow: '0 0 0 2px var(--node-selected-border, #007fd4), inset 0 0 12px rgba(0,127,212,0.15)',
+        },
+        className: `${n.className ?? ''} ssis-drop-target`.trim(),
+      };
+    });
+  }, [nodes, dropTargetId]);
+
+  // -----------------------------------------------------------------------
   // MiniMap colors
   // -----------------------------------------------------------------------
 
@@ -316,11 +410,13 @@ const ControlFlowCanvasInner: React.FC = () => {
   return (
     <div ref={reactFlowWrapper} className="ssis-canvas" onDragOver={onDragOver} onDrop={onDrop}>
       <ReactFlow
-        nodes={nodes}
+        nodes={displayNodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         onNodeContextMenu={onNodeContextMenu}
         onEdgeContextMenu={onEdgeContextMenu}

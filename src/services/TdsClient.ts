@@ -126,6 +126,32 @@ export interface ExecutionParameter {
 }
 
 // ---------------------------------------------------------------------------
+// MSDB Package Store DTOs (Package Deployment Model)
+// ---------------------------------------------------------------------------
+
+export interface MsdbFolder {
+  folderId: string;
+  parentFolderId: string | null;
+  name: string;
+}
+
+export interface MsdbPackage {
+  id: string;
+  name: string;
+  description: string;
+  folderId: string;
+  packageData?: Buffer;
+}
+
+/** What deployment models a server supports. */
+export interface ServerCapabilities {
+  /** True if [SSISDB] catalog exists (project deployment model, SQL 2012+). */
+  hasSsisdb: boolean;
+  /** True if msdb.dbo.sysssispackages exists (package deployment model / SSIS Package Store). */
+  hasMsdbStore: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
 
@@ -836,6 +862,146 @@ export class TdsClient {
       parameterValue: r.sensitive ? null : r.parameter_value,
       sensitiveParameterValue: !!r.sensitive,
     }));
+  }
+
+  // ── Server Capability Detection ─────────────────────────────────────
+
+  /**
+   * Detect which SSIS deployment models the connected server supports.
+   * - SSISDB catalog (project deployment model, SQL 2012+)
+   * - msdb package store (package deployment model, legacy)
+   */
+  async detectCapabilities(): Promise<ServerCapabilities> {
+    this._ensureConnected();
+
+    let hasSsisdb = false;
+    let hasMsdbStore = false;
+
+    try {
+      const dbResult = await this.executeQuery(
+        `SELECT 1 FROM sys.databases WHERE name = 'SSISDB'`,
+      );
+      hasSsisdb = dbResult.length > 0;
+    } catch { /* not available */ }
+
+    try {
+      const msdbResult = await this.executeQuery(
+        `SELECT 1 FROM msdb.sys.objects WHERE name = 'sysssispackages' AND type = 'U'`,
+      );
+      hasMsdbStore = msdbResult.length > 0;
+    } catch { /* not available */ }
+
+    return { hasSsisdb, hasMsdbStore };
+  }
+
+  // ── MSDB Package Store (Package Deployment Model) ───────────────────
+
+  /**
+   * Get folders from the MSDB SSIS package store.
+   */
+  async getMsdbFolders(parentFolderId?: string): Promise<MsdbFolder[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    let query: string;
+    if (parentFolderId !== undefined) {
+      request.input('parentId', sql.UniqueIdentifier, parentFolderId);
+      query = `SELECT folderid, parentfolderid, foldername
+               FROM msdb.dbo.sysssispackagefolders
+               WHERE parentfolderid = @parentId
+               ORDER BY foldername`;
+    } else {
+      // Root folders have parentfolderid = the special root GUID or NULL
+      query = `SELECT folderid, parentfolderid, foldername
+               FROM msdb.dbo.sysssispackagefolders
+               ORDER BY foldername`;
+    }
+    const result = await request.query(query);
+    return (result.recordset ?? []).map((r: any) => ({
+      folderId: String(r.folderid),
+      parentFolderId: r.parentfolderid ? String(r.parentfolderid) : null,
+      name: r.foldername ?? '',
+    }));
+  }
+
+  /**
+   * Get packages from the MSDB SSIS package store in a specific folder.
+   */
+  async getMsdbPackages(folderId: string): Promise<MsdbPackage[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folderId', sql.UniqueIdentifier, folderId);
+    const result = await request.query(
+      `SELECT id, name, description, folderid
+       FROM msdb.dbo.sysssispackages
+       WHERE folderid = @folderId
+       ORDER BY name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      id: String(r.id),
+      name: r.name ?? '',
+      description: r.description ?? '',
+      folderId: String(r.folderid),
+    }));
+  }
+
+  /**
+   * Get all packages from the MSDB SSIS package store.
+   */
+  async getMsdbAllPackages(): Promise<MsdbPackage[]> {
+    this._ensureConnected();
+    const result = await this.executeQuery(
+      `SELECT id, name, description, folderid
+       FROM msdb.dbo.sysssispackages
+       ORDER BY name`,
+    );
+    return result.map((r: any) => ({
+      id: String(r.id),
+      name: r.name ?? '',
+      description: r.description ?? '',
+      folderId: String(r.folderid),
+    }));
+  }
+
+  /**
+   * Download a package's XML (dtsx) from the MSDB store.
+   */
+  async getMsdbPackageData(packageId: string): Promise<Buffer> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('pkgId', sql.UniqueIdentifier, packageId);
+    const result = await request.query(
+      `SELECT packagedata FROM msdb.dbo.sysssispackages WHERE id = @pkgId`,
+    );
+    const row = result.recordset?.[0];
+    if (!row?.packagedata) {
+      throw new Error(`Package ${packageId} not found or has no data`);
+    }
+    return row.packagedata as Buffer;
+  }
+
+  /**
+   * Execute an MSDB-stored package using sp_start_job or dtexec.
+   * Returns the job name created for execution tracking.
+   */
+  async executeMsdbPackage(
+    packagePath: string,
+    serverName: string,
+  ): Promise<string> {
+    this._ensureConnected();
+    // Use SQL Agent to run the package
+    const jobName = `SSIS_VSCode_${Date.now()}`;
+    const request = this.pool!.request();
+    // Create a one-time SQL Agent job that runs the package
+    await request.query(`
+      EXEC msdb.dbo.sp_add_job @job_name = '${jobName}';
+      EXEC msdb.dbo.sp_add_jobstep @job_name = '${jobName}',
+        @step_name = 'RunPackage',
+        @subsystem = 'SSIS',
+        @command = '/SQL "${packagePath}" /SERVER "${serverName}"';
+      EXEC msdb.dbo.sp_add_jobserver @job_name = '${jobName}';
+      EXEC msdb.dbo.sp_start_job @job_name = '${jobName}';
+    `);
+    return jobName;
   }
 
   // ── Internals ───────────────────────────────────────────────────────

@@ -146,6 +146,19 @@
         "command": "ssis.viewExecutionDetails",
         "title": "View Execution Details",
         "icon": "$(info)"
+      },
+      {
+        "command": "ssis.downloadMsdbPackage",
+        "title": "Download Package",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ssis.executeMsdbPackage",
+        "title": "Execute Package",
+        "icon": {
+          "light": "media/icons/execute.svg",
+          "dark": "media/icons/execute.svg"
+        }
       }
     ],
     "viewsContainers": {
@@ -173,18 +186,33 @@
       "editor/title": [
         {
           "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
-          "command": "ssis.validatePackage",
+          "command": "ssis.newPackage",
           "group": "navigation@1"
         },
         {
           "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
-          "command": "ssis.deployProject",
+          "command": "ssis.validatePackage",
           "group": "navigation@2"
         },
         {
           "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
-          "command": "ssis.executePackage",
+          "command": "ssis.exportIspac",
           "group": "navigation@3"
+        },
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.deployProject",
+          "group": "navigation@4"
+        },
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.executePackage",
+          "group": "navigation@5"
+        },
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.viewExecutionHistory",
+          "group": "navigation@6"
         }
       ],
       "view/title": [
@@ -236,6 +264,11 @@
           "group": "1_actions@1"
         },
         {
+          "command": "ssis.createFolder",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == folder",
+          "group": "1_actions@1"
+        },
+        {
           "command": "ssis.disconnectCatalog",
           "when": "view == ssisDesigner.catalogExplorer && viewItem == server",
           "group": "1_actions@1"
@@ -243,6 +276,16 @@
         {
           "command": "ssis.viewExecutionHistory",
           "when": "view == ssisDesigner.catalogExplorer && viewItem == server",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "ssis.viewExecutionHistory",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == project",
+          "group": "1_actions@3"
+        },
+        {
+          "command": "ssis.viewExecutionHistory",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == folder",
           "group": "1_actions@2"
         },
         {
@@ -274,6 +317,26 @@
           "command": "ssis.deleteEnvironment",
           "when": "view == ssisDesigner.catalogExplorer && viewItem == environment",
           "group": "2_danger@1"
+        },
+        {
+          "command": "ssis.downloadMsdbPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == msdbPackage",
+          "group": "inline@1"
+        },
+        {
+          "command": "ssis.executeMsdbPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == msdbPackage",
+          "group": "inline@2"
+        },
+        {
+          "command": "ssis.downloadMsdbPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == msdbPackage",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.executeMsdbPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == msdbPackage",
+          "group": "1_actions@2"
         },
         {
           "command": "ssis.editConnection",

@@ -182,6 +182,59 @@ export function activate(context: vscode.ExtensionContext): void {
             }
         }),
 
+        // ── MSDB Package Store commands ───────────────────────────────
+        vscode.commands.registerCommand('ssis.downloadMsdbPackage', async (item: SsisTreeItem) => {
+            if (!item?.metadata?.connectionId || !item?.metadata?.msdbPackageId) { return; }
+            const client = await ssisTreeDataProvider.getClient(item.metadata.connectionId);
+            if (!client) { return; }
+            try {
+                const saveUri = await vscode.window.showSaveDialog({
+                    defaultUri: vscode.Uri.file(item.metadata.packageName + '.dtsx'),
+                    filters: { 'SSIS Package': ['dtsx'] },
+                    saveLabel: 'Save Package',
+                });
+                if (!saveUri) { return; }
+                await vscode.window.withProgress(
+                    { location: vscode.ProgressLocation.Notification, title: `Downloading ${item.metadata.packageName}…` },
+                    async () => {
+                        const data = await client.getMsdbPackageData(item.metadata!.msdbPackageId);
+                        await vscode.workspace.fs.writeFile(saveUri, data);
+                    },
+                );
+                const openNow = await vscode.window.showInformationMessage(
+                    `Package saved to ${saveUri.fsPath}`,
+                    'Open',
+                );
+                if (openNow === 'Open') {
+                    await vscode.commands.executeCommand('vscode.open', saveUri);
+                }
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Download failed: ${err.message ?? err}`);
+            }
+        }),
+
+        vscode.commands.registerCommand('ssis.executeMsdbPackage', async (item: SsisTreeItem) => {
+            if (!item?.metadata?.connectionId || !item?.metadata?.packageName) { return; }
+            const client = await ssisTreeDataProvider.getClient(item.metadata.connectionId);
+            if (!client) { return; }
+            const conn = ssisTreeDataProvider.getConnection(item.metadata.connectionId);
+            if (!conn) { return; }
+            try {
+                const packagePath = item.metadata.packageName;
+                await vscode.window.withProgress(
+                    { location: vscode.ProgressLocation.Notification, title: `Executing ${packagePath}…` },
+                    async () => {
+                        const jobName = await client.executeMsdbPackage(packagePath, conn.serverName);
+                        vscode.window.showInformationMessage(
+                            `Package execution started as SQL Agent job: ${jobName}`
+                        );
+                    },
+                );
+            } catch (err: any) {
+                vscode.window.showErrorMessage(`Execution failed: ${err.message ?? err}`);
+            }
+        }),
+
         // ── Connection Manager context menu commands ──────────────────
         vscode.commands.registerCommand('ssis.editConnection', (item: ConnectionTreeItem) => {
             if (item.connectionManager) {

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { TdsClient, TdsConnectionConfig } from './services/TdsClient';
+import { TdsClient, TdsConnectionConfig, ServerCapabilities } from './services/TdsClient';
 
 // ---------------------------------------------------------------------------
 // Item types
@@ -16,6 +16,10 @@ export enum SsisTreeItemType {
   Environment = 'environment',
   EnvironmentVariable = 'environmentVariable',
   ConnectPrompt = 'connectPrompt',
+  // MSDB Package Store (Package Deployment Model)
+  MsdbStore = 'msdbStore',
+  MsdbFolder = 'msdbFolder',
+  MsdbPackage = 'msdbPackage',
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +51,9 @@ export class SsisTreeItem extends vscode.TreeItem {
       [SsisTreeItemType.Package]: 'package',
       [SsisTreeItemType.Environment]: 'environment',
       [SsisTreeItemType.ConnectPrompt]: 'connection',
+      [SsisTreeItemType.MsdbStore]: 'connection',
+      [SsisTreeItemType.MsdbFolder]: 'folder',
+      [SsisTreeItemType.MsdbPackage]: 'package',
     };
     const svgName = svgIconMap[this.itemType];
     if (svgName && SsisTreeItem.extensionUri) {
@@ -66,6 +73,9 @@ export class SsisTreeItem extends vscode.TreeItem {
       [SsisTreeItemType.Environment]: 'globe',
       [SsisTreeItemType.EnvironmentVariable]: 'key',
       [SsisTreeItemType.ConnectPrompt]: 'plug',
+      [SsisTreeItemType.MsdbStore]: 'archive',
+      [SsisTreeItemType.MsdbFolder]: 'folder',
+      [SsisTreeItemType.MsdbPackage]: 'file',
     };
     this.iconPath = new vscode.ThemeIcon(codiconMap[this.itemType] ?? 'circle-outline');
   }
@@ -94,6 +104,9 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
 
   /** Active TDS clients keyed by connection id */
   private _clients = new Map<string, TdsClient>();
+
+  /** Cached server capabilities keyed by connection id */
+  private _capabilities = new Map<string, ServerCapabilities>();
 
   /** Saved connections (persisted in global state) */
   private _connections: SavedCatalogConnection[] = [];
@@ -167,8 +180,9 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
       await this.context.secrets.store(id, password);
     }
 
-    // Attempt to connect
+    // Attempt to connect (to master — we detect SSISDB/msdb capabilities after)
     const client = new TdsClient();
+    let caps: ServerCapabilities;
     try {
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Connecting to ${serverName}…` },
@@ -176,12 +190,13 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
           const config: TdsConnectionConfig = {
             server: serverName,
             port,
-            database: 'SSISDB',
+            database: 'master',
             trustedConnection: authType.value === 'windows',
             user,
             password,
           };
           await client.connect(config);
+          caps = await client.detectCapabilities();
         },
       );
     } catch (err: any) {
@@ -190,10 +205,16 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
     }
 
     this._clients.set(id, client);
+    this._capabilities.set(id, caps!);
     this._connections.push(conn);
     await this._saveConnections();
     this.refresh();
-    vscode.window.showInformationMessage(`Connected to ${serverName}`);
+
+    const models: string[] = [];
+    if (caps!.hasSsisdb) { models.push('SSISDB Catalog'); }
+    if (caps!.hasMsdbStore) { models.push('MSDB Package Store'); }
+    const modelsDesc = models.length > 0 ? ` (${models.join(', ')})` : ' (no SSIS stores detected)';
+    vscode.window.showInformationMessage(`Connected to ${serverName}${modelsDesc}`);
   }
 
   /** Disconnect and remove a server connection. */
@@ -203,6 +224,7 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
       await client.disconnect();
       this._clients.delete(connectionId);
     }
+    this._capabilities.delete(connectionId);
     this._connections = this._connections.filter((c) => c.id !== connectionId);
     await this._saveConnections();
     await this.context.secrets.delete(connectionId);
@@ -222,14 +244,28 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
     const config: TdsConnectionConfig = {
       server: conn.serverName,
       port: conn.port,
-      database: 'SSISDB',
+      database: 'master',
       trustedConnection: conn.authType === 'windows',
       user: conn.user,
       password: password ?? undefined,
     };
     await client.connect(config);
     this._clients.set(conn.id, client);
+
+    // Detect capabilities on reconnect if not cached
+    if (!this._capabilities.has(conn.id)) {
+      try {
+        const caps = await client.detectCapabilities();
+        this._capabilities.set(conn.id, caps);
+      } catch { /* best effort */ }
+    }
+
     return client;
+  }
+
+  /** Get detected capabilities for a connection. */
+  getCapabilities(connectionId: string): ServerCapabilities | undefined {
+    return this._capabilities.get(connectionId);
   }
 
   /** Get IDs of all active connections. */
@@ -283,16 +319,46 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
 
     try {
       switch (element.itemType) {
-        // ── Server → SSISDB ──
+        // ── Server → show available SSIS stores ──
         case SsisTreeItemType.Server: {
-          return [
-            new SsisTreeItem(
-              'SSISDB',
-              SsisTreeItemType.Catalog,
-              vscode.TreeItemCollapsibleState.Collapsed,
-              { connectionId: meta.connectionId },
-            ),
-          ];
+          const items: SsisTreeItem[] = [];
+          // Ensure client is connected & capabilities are detected
+          const client = await this.getClient(meta.connectionId);
+          const caps = this._capabilities.get(meta.connectionId);
+
+          if (caps?.hasSsisdb) {
+            items.push(
+              new SsisTreeItem(
+                'SSISDB (Project Deployment)',
+                SsisTreeItemType.Catalog,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                { connectionId: meta.connectionId },
+              ),
+            );
+          }
+
+          if (caps?.hasMsdbStore) {
+            items.push(
+              new SsisTreeItem(
+                'MSDB Package Store',
+                SsisTreeItemType.MsdbStore,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                { connectionId: meta.connectionId },
+              ),
+            );
+          }
+
+          if (items.length === 0) {
+            const noStore = new SsisTreeItem(
+              'No SSIS stores detected',
+              SsisTreeItemType.ConnectPrompt,
+              vscode.TreeItemCollapsibleState.None,
+            );
+            noStore.description = 'SSISDB and MSDB not found';
+            items.push(noStore);
+          }
+
+          return items;
         }
 
         // ── Catalog → Folders ──
@@ -418,6 +484,96 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
             item.tooltip = v.description || v.name;
             return item;
           });
+        }
+
+        // ── MSDB Package Store → Folders ──
+        case SsisTreeItemType.MsdbStore: {
+          const client = await this.getClient(meta.connectionId);
+          if (!client) { return []; }
+          const allFolders = await client.getMsdbFolders();
+          // Build folder hierarchy: find root folders (ones whose parent is not in the list,
+          // or whose parent is themselves, which is the MSDB root convention)
+          const folderIds = new Set(allFolders.map(f => f.folderId));
+          const rootFolders = allFolders.filter(f =>
+            !f.parentFolderId ||
+            f.parentFolderId === f.folderId ||
+            !folderIds.has(f.parentFolderId)
+          );
+          const items: SsisTreeItem[] = rootFolders.map((f) =>
+            new SsisTreeItem(
+              f.name,
+              SsisTreeItemType.MsdbFolder,
+              vscode.TreeItemCollapsibleState.Collapsed,
+              { connectionId: meta.connectionId, msdbFolderId: f.folderId },
+            ),
+          );
+          // Also show packages at the root level
+          const rootPackages = await client.getMsdbAllPackages();
+          const rootFolderIds = new Set(rootFolders.map(f => f.folderId));
+          const orphanPackages = rootPackages.filter(p =>
+            !rootFolderIds.has(p.folderId) || rootFolders.length === 0
+          );
+          // If there are no sub-folders, just show all packages
+          if (rootFolders.length === 0) {
+            return rootPackages.map((pkg) => {
+              const item = new SsisTreeItem(
+                pkg.name,
+                SsisTreeItemType.MsdbPackage,
+                vscode.TreeItemCollapsibleState.None,
+                {
+                  connectionId: meta.connectionId,
+                  msdbPackageId: pkg.id,
+                  packageName: pkg.name,
+                },
+              );
+              if (pkg.description) { item.tooltip = pkg.description; }
+              return item;
+            });
+          }
+          return items;
+        }
+
+        // ── MSDB Folder → Sub-folders + Packages ──
+        case SsisTreeItemType.MsdbFolder: {
+          const client = await this.getClient(meta.connectionId);
+          if (!client) { return []; }
+          const items: SsisTreeItem[] = [];
+
+          // Child folders
+          const allFolders = await client.getMsdbFolders();
+          const childFolders = allFolders.filter(f =>
+            f.parentFolderId === meta.msdbFolderId && f.folderId !== f.parentFolderId
+          );
+          for (const f of childFolders) {
+            items.push(
+              new SsisTreeItem(
+                f.name,
+                SsisTreeItemType.MsdbFolder,
+                vscode.TreeItemCollapsibleState.Collapsed,
+                { connectionId: meta.connectionId, msdbFolderId: f.folderId },
+              ),
+            );
+          }
+
+          // Packages in this folder
+          const packages = await client.getMsdbPackages(meta.msdbFolderId);
+          for (const pkg of packages) {
+            const item = new SsisTreeItem(
+              pkg.name,
+              SsisTreeItemType.MsdbPackage,
+              vscode.TreeItemCollapsibleState.None,
+              {
+                connectionId: meta.connectionId,
+                msdbPackageId: pkg.id,
+                packageName: pkg.name,
+                msdbFolderId: meta.msdbFolderId,
+              },
+            );
+            if (pkg.description) { item.tooltip = pkg.description; }
+            items.push(item);
+          }
+
+          return items;
         }
 
         default:

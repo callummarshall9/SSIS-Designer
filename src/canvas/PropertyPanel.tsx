@@ -328,13 +328,19 @@ const CollapsibleSection: React.FC<{ title: string; defaultOpen?: boolean; child
 interface PropertyPanelProps {
   collapsed?: boolean;
   onToggle?: () => void;
-  connectionManagers?: { id: string; name: string }[];
 }
 
-const PropertyPanel: React.FC<PropertyPanelProps> = ({ collapsed = false, onToggle, connectionManagers = [] }) => {
+const PropertyPanel: React.FC<PropertyPanelProps> = ({ collapsed = false, onToggle }) => {
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const storeConnectionManagers = useCanvasStore((s) => s.connectionManagers);
+
+  // Derive the list used by 'connection' dropdowns from the Zustand store
+  const connectionManagers = useMemo(
+    () => storeConnectionManagers.map((cm) => ({ id: cm.dtsId ?? cm.id, name: cm.objectName })),
+    [storeConnectionManagers]
+  );
 
   // Find selected node or edge
   const selectedNode = useMemo(

@@ -579,7 +579,6 @@ function App() {
         <PropertyPanel
           collapsed={propertiesCollapsed}
           onToggle={() => setPropertiesCollapsed(!propertiesCollapsed)}
-          connectionManagers={connectionManagers}
         />
       </div>
 
