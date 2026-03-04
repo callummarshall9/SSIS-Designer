@@ -449,11 +449,14 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failure'>('idle');
   const [testError, setTestError] = useState<string>('');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [rawMode, setRawMode] = useState(false);
+  const [rawConnectionString, setRawConnectionString] = useState('');
 
   const previewConnectionString = useMemo(() => {
     if (!editing) { return ''; }
+    if (rawMode) { return rawConnectionString; }
     return buildConnectionString(editing.type, editing.fields);
-  }, [editing]);
+  }, [editing, rawMode, rawConnectionString]);
 
   // Post message to extension host
   const postMessage = useCallback((msg: any) => {
@@ -475,6 +478,8 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
     setAddMenuOpen(false);
     setTestStatus('idle');
     setTestError('');
+    setRawMode(false);
+    setRawConnectionString('');
   }, []);
 
   const handleEdit = useCallback((cm: ConnectionManager) => {
@@ -484,6 +489,8 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
     setEditing(ed);
     setTestStatus('idle');
     setTestError('');
+    setRawMode(false);
+    setRawConnectionString(cm.connectionString);
   }, []);
 
   const handleDelete = useCallback((id: string) => {
@@ -504,7 +511,7 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
 
   const handleTestConnection = useCallback(() => {
     if (!editing) { return; }
-    const connStr = buildConnectionString(editing.type, editing.fields);
+    const connStr = rawMode ? rawConnectionString : buildConnectionString(editing.type, editing.fields);
     setTestStatus('testing');
     setTestError('');
 
@@ -535,11 +542,11 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
       setTestStatus((prev) => (prev === 'testing' ? 'failure' : prev));
       setTestError((prev) => prev || 'Connection test timed out');
     }, 30000);
-  }, [editing, postMessage]);
+  }, [editing, rawMode, rawConnectionString, postMessage]);
 
   const handleSave = useCallback(() => {
     if (!editing) { return; }
-    const connStr = buildConnectionString(editing.type, editing.fields);
+    const connStr = rawMode ? rawConnectionString : buildConnectionString(editing.type, editing.fields);
     const cm: ConnectionManager = {
       id: editing.id,
       dtsId: editing.id,
@@ -567,6 +574,8 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
     setEditing(null);
     setTestStatus('idle');
     setTestError('');
+    setRawMode(false);
+    setRawConnectionString('');
   }, []);
 
   if (!visible) { return null; }
@@ -687,17 +696,50 @@ const ConnectionManagerPanel: React.FC<ConnectionManagerPanelProps> = ({ visible
 
                 <div className="ssis-cm-editor__divider" />
 
-                <FieldsEditor
-                  type={editing.type}
-                  fields={editing.fields}
-                  onChange={handleFieldChange}
-                />
+                <div className="ssis-cm-field ssis-cm-field--checkbox">
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={rawMode}
+                      onChange={(e) => {
+                        const goingRaw = e.target.checked;
+                        setRawMode(goingRaw);
+                        if (goingRaw) {
+                          setRawConnectionString(buildConnectionString(editing.type, editing.fields));
+                        }
+                      }}
+                    />
+                    Edit as raw connection string
+                  </label>
+                </div>
+
+                {rawMode ? (
+                  <div className="ssis-cm-fields">
+                    <div className="ssis-cm-field">
+                      <label>Connection String</label>
+                      <textarea
+                        value={rawConnectionString}
+                        onChange={(e) => setRawConnectionString(e.target.value)}
+                        placeholder="Enter connection string..."
+                        rows={5}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <FieldsEditor
+                    type={editing.type}
+                    fields={editing.fields}
+                    onChange={handleFieldChange}
+                  />
+                )}
 
                 {/* Connection string preview */}
+                {!rawMode && (
                 <div className="ssis-cm-preview">
                   <label>Connection String Preview</label>
                   <code className="ssis-cm-preview__value">{previewConnectionString}</code>
                 </div>
+                )}
 
                 {/* Test connection */}
                 <div className="ssis-cm-test">
