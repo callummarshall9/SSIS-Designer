@@ -232,14 +232,125 @@ function buildConnectionString(type: ConnectionType, fields: ConnectionFields): 
   }
 }
 
+/** Parse a key=value connection string into a case-insensitive map. */
+function parseConnStringParts(cs: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const segment of cs.split(';')) {
+    const eqIdx = segment.indexOf('=');
+    if (eqIdx > 0) {
+      const key = segment.substring(0, eqIdx).trim().toLowerCase();
+      const value = segment.substring(eqIdx + 1).trim();
+      map.set(key, value);
+    }
+  }
+  return map;
+}
+
+function parseBool(val: string | undefined, fallback: boolean): boolean {
+  if (!val) { return fallback; }
+  const v = val.toLowerCase();
+  return v === 'true' || v === 'yes' || v === '1';
+}
+
+function parseAuthMode(parts: Map<string, string>): AuthenticationMode {
+  const auth = parts.get('authentication')?.toLowerCase() ?? '';
+  const integrated = parts.get('integrated security')?.toLowerCase();
+  if (auth === 'activedirectorypassword') { return 'EntraPassword'; }
+  if (auth === 'activedirectoryintegrated') { return 'EntraIntegrated'; }
+  if (auth === 'activedirectoryinteractive') { return 'EntraInteractive'; }
+  if (auth === 'activedirectoryserviceprincipal') { return 'EntraServicePrincipal'; }
+  if (integrated === 'sspi' || integrated === 'true') { return 'Windows'; }
+  const user = parts.get('user id') ?? parts.get('uid') ?? parts.get('user') ?? '';
+  if (user) { return 'SQL'; }
+  return 'Windows';
+}
+
+function parseOleDbFields(cs: string): OleDbFields {
+  const p = parseConnStringParts(cs);
+  return {
+    server: p.get('data source') ?? p.get('server') ?? '',
+    database: p.get('initial catalog') ?? p.get('database') ?? '',
+    authentication: parseAuthMode(p),
+    username: p.get('user id') ?? p.get('uid') ?? p.get('user') ?? '',
+    password: p.get('password') ?? p.get('pwd') ?? '',
+    encrypt: parseBool(p.get('encrypt'), true),
+    trustServerCertificate: parseBool(p.get('trustservercertificate'), false),
+    commandTimeout: parseInt(p.get('command timeout') ?? p.get('connect timeout') ?? '30', 10) || 30,
+    persistSecurityInfo: parseBool(p.get('persist security info'), false),
+    multipleActiveResultSets: parseBool(p.get('multipleactiveresultsets'), false),
+  };
+}
+
+function parseAdoNetFields(cs: string): AdoNetFields {
+  const p = parseConnStringParts(cs);
+  return {
+    server: p.get('data source') ?? p.get('server') ?? '',
+    database: p.get('initial catalog') ?? p.get('database') ?? '',
+    provider: p.get('provider') ?? 'System.Data.SqlClient',
+    authentication: parseAuthMode(p),
+    username: p.get('user id') ?? p.get('uid') ?? p.get('user') ?? '',
+    password: p.get('password') ?? p.get('pwd') ?? '',
+    encrypt: parseBool(p.get('encrypt'), true),
+    trustServerCertificate: parseBool(p.get('trustservercertificate'), false),
+    commandTimeout: parseInt(p.get('command timeout') ?? p.get('connect timeout') ?? '30', 10) || 30,
+    persistSecurityInfo: parseBool(p.get('persist security info'), false),
+    multipleActiveResultSets: parseBool(p.get('multipleactiveresultsets'), false),
+  };
+}
+
+function parseFlatFileFields(cs: string): FlatFileFields {
+  const p = parseConnStringParts(cs);
+  return {
+    filePath: p.get('connectionstring') ?? '',
+    columnDelimiter: p.get('columndelimiter') ?? ',',
+    textQualifier: p.get('textqualifier') ?? '"',
+    headerRowDelimiter: p.get('headerrowdelimiter') ?? '\\r\\n',
+    hasHeaderRow: parseBool(p.get('headerrowpresent'), true),
+  };
+}
+
+function parseExcelFields(cs: string): ExcelFields {
+  const p = parseConnStringParts(cs);
+  const provider = (p.get('provider') ?? '').toLowerCase();
+  const isOld = provider.includes('jet');
+  const extended = p.get('extended properties') ?? '';
+  const hdr = extended.toLowerCase().includes('hdr=no') ? false : true;
+  return {
+    filePath: p.get('data source') ?? '',
+    excelVersion: isOld ? 'Excel 97-2003' : 'Excel 2007+',
+    firstRowHasHeaders: hdr,
+  };
+}
+
 function parseConnectionStringToEditing(cm: ConnectionManager): EditingConnection {
   const type = cm.creationName as ConnectionType;
+  let fields: ConnectionFields;
+  const cs = cm.connectionString ?? '';
+
+  switch (type) {
+    case 'OLEDB':
+      fields = cs ? parseOleDbFields(cs) : defaultFieldsForType(type);
+      break;
+    case 'ADO.NET':
+      fields = cs ? parseAdoNetFields(cs) : defaultFieldsForType(type);
+      break;
+    case 'FLATFILE':
+      fields = cs ? parseFlatFileFields(cs) : defaultFieldsForType(type);
+      break;
+    case 'EXCEL':
+      fields = cs ? parseExcelFields(cs) : defaultFieldsForType(type);
+      break;
+    default:
+      fields = cs ? { connectionString: cs } as RawFields : defaultFieldsForType(type);
+      break;
+  }
+
   return {
     id: cm.id,
     name: cm.objectName,
     description: cm.description,
     type,
-    fields: defaultFieldsForType(type),
+    fields,
   };
 }
 

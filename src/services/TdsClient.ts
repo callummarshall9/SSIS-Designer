@@ -185,8 +185,7 @@ export class TdsClient {
         sqlConfig.password = config.password;
       }
 
-      this.pool = new sql.ConnectionPool(sqlConfig);
-      await this.pool.connect();
+      this.pool = await sql.connect(sqlConfig);
       this.connected = true;
       return true;
     } catch (err) {
@@ -197,8 +196,7 @@ export class TdsClient {
 
   async connectWithConnectionString(connectionString: string): Promise<boolean> {
     try {
-      this.pool = new sql.ConnectionPool(connectionString);
-      await this.pool.connect();
+      this.pool = await sql.connect(connectionString);
       this.connected = true;
       return true;
     } catch (err) {
@@ -208,21 +206,21 @@ export class TdsClient {
   }
 
   async testConnection(connectionString: string): Promise<{ success: boolean; error?: string }> {
-    let testPool: sql.ConnectionPool | undefined;
+    let pool: sql.ConnectionPool | undefined;
     let rawError: string | undefined;
 
     try {
-      // Try connecting with the raw connection string first (mssql supports it natively)
-      testPool = new sql.ConnectionPool(connectionString);
-      await testPool.connect();
-      await testPool.close();
+      // Use sql.connect() with raw connection string as per mssql docs
+      pool = await sql.connect(connectionString);
+      await pool.close();
       return { success: true };
     } catch (err: any) {
       rawError = err?.message ?? err?.originalError?.message ?? 'Unknown error';
       console.error('[TdsClient] Raw connection string attempt failed:', rawError, err);
-      try { testPool?.close(); } catch { /* ignore cleanup */ }
+      try { pool?.close(); } catch { /* ignore cleanup */ }
     }
 
+    // Fallback: parse the connection string into a config object and try again
     let parsedConfig: sql.config;
     try {
       parsedConfig = this.parseConnectionString(connectionString);
@@ -236,12 +234,11 @@ export class TdsClient {
     }
 
     try {
-      testPool = new sql.ConnectionPool(parsedConfig);
-      await testPool.connect();
-      await testPool.close();
+      pool = await sql.connect(parsedConfig);
+      await pool.close();
       return { success: true };
     } catch (err: any) {
-      try { testPool?.close(); } catch { /* ignore cleanup error */ }
+      try { pool?.close(); } catch { /* ignore cleanup error */ }
       const errorMessage =
         err?.message ??
         err?.originalError?.message ??
