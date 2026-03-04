@@ -16,6 +16,8 @@ export interface TdsConnectionConfig {
   user?: string;
   password?: string;
   trustedConnection?: boolean;
+  encrypt?: boolean;
+  trustServerCertificate?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,8 +159,8 @@ export class TdsClient {
         port: config.port ?? 1433,
         database: config.database ?? 'master',
         options: {
-          encrypt: false,
-          trustServerCertificate: true,
+          encrypt: config.encrypt ?? true,
+          trustServerCertificate: config.trustServerCertificate ?? false,
         },
       };
 
@@ -828,6 +830,11 @@ export class TdsClient {
     const integratedSecurity = parts.get('integrated security')?.toLowerCase();
     const trusted = integratedSecurity === 'sspi' || integratedSecurity === 'true';
 
+    const encryptRaw = parts.get('encrypt')?.toLowerCase();
+    const encrypt = encryptRaw === 'yes' || encryptRaw === 'true' || encryptRaw === undefined;
+    const trustCertRaw = parts.get('trustservercertificate')?.toLowerCase();
+    const trustServerCertificate = trustCertRaw === 'yes' || trustCertRaw === 'true';
+
     let host = server;
     let port = 1433;
     if (server.includes(',')) {
@@ -841,8 +848,8 @@ export class TdsClient {
       port,
       database,
       options: {
-        encrypt: false,
-        trustServerCertificate: true,
+        encrypt,
+        trustServerCertificate,
       },
     };
 

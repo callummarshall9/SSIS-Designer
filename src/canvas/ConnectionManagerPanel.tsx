@@ -23,6 +23,8 @@ interface OleDbFields {
   authentication: 'Windows' | 'SQL';
   username: string;
   password: string;
+  encrypt: boolean;
+  trustServerCertificate: boolean;
 }
 
 interface FlatFileFields {
@@ -43,6 +45,8 @@ interface AdoNetFields {
   server: string;
   database: string;
   provider: string;
+  encrypt: boolean;
+  trustServerCertificate: boolean;
 }
 
 interface RawFields {
@@ -102,13 +106,13 @@ function newGuid(): string {
 function defaultFieldsForType(type: ConnectionType): ConnectionFields {
   switch (type) {
     case 'OLEDB':
-      return { server: '', database: '', authentication: 'Windows', username: '', password: '' } as OleDbFields;
+      return { server: '', database: '', authentication: 'Windows', username: '', password: '', encrypt: true, trustServerCertificate: false } as OleDbFields;
     case 'FLATFILE':
       return { filePath: '', columnDelimiter: ',', textQualifier: '"', headerRowDelimiter: '\\r\\n', hasHeaderRow: true } as FlatFileFields;
     case 'EXCEL':
       return { filePath: '', excelVersion: 'Excel 2007+', firstRowHasHeaders: true } as ExcelFields;
     case 'ADO.NET':
-      return { server: '', database: '', provider: 'System.Data.SqlClient' } as AdoNetFields;
+      return { server: '', database: '', provider: 'System.Data.SqlClient', encrypt: true, trustServerCertificate: false } as AdoNetFields;
     default:
       return { connectionString: '' } as RawFields;
   }
@@ -128,6 +132,8 @@ function buildConnectionString(type: ConnectionType, fields: ConnectionFields): 
       } else {
         parts.push(`User ID=${f.username}`, `Password=${f.password}`);
       }
+      parts.push(`Encrypt=${f.encrypt ? 'yes' : 'no'}`);
+      parts.push(`TrustServerCertificate=${f.trustServerCertificate ? 'yes' : 'no'}`);
       return parts.join(';') + ';';
     }
     case 'FLATFILE': {
@@ -151,7 +157,7 @@ function buildConnectionString(type: ConnectionType, fields: ConnectionFields): 
     }
     case 'ADO.NET': {
       const f = fields as AdoNetFields;
-      return `Data Source=${f.server};Initial Catalog=${f.database};Provider=${f.provider};Integrated Security=SSPI;`;
+      return `Data Source=${f.server};Initial Catalog=${f.database};Provider=${f.provider};Integrated Security=SSPI;Encrypt=${f.encrypt ? 'yes' : 'no'};TrustServerCertificate=${f.trustServerCertificate ? 'yes' : 'no'};`;
     }
     default: {
       return (fields as RawFields).connectionString ?? '';
@@ -229,6 +235,26 @@ const OleDbEditor: React.FC<FieldEditorProps<OleDbFields>> = ({ fields, onChange
         </div>
       </>
     )}
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.encrypt}
+          onChange={(e) => onChange({ encrypt: e.target.checked })}
+        />
+        Encrypt connection
+      </label>
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.trustServerCertificate}
+          onChange={(e) => onChange({ trustServerCertificate: e.target.checked })}
+        />
+        Trust server certificate
+      </label>
+    </div>
   </div>
 );
 
@@ -343,6 +369,26 @@ const AdoNetEditor: React.FC<FieldEditorProps<AdoNetFields>> = ({ fields, onChan
           <option key={p} value={p}>{p}</option>
         ))}
       </select>
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.encrypt}
+          onChange={(e) => onChange({ encrypt: e.target.checked })}
+        />
+        Encrypt connection
+      </label>
+    </div>
+    <div className="ssis-cm-field ssis-cm-field--checkbox">
+      <label>
+        <input
+          type="checkbox"
+          checked={fields.trustServerCertificate}
+          onChange={(e) => onChange({ trustServerCertificate: e.target.checked })}
+        />
+        Trust server certificate
+      </label>
     </div>
   </div>
 );
