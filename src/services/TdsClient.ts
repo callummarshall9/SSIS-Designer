@@ -1,0 +1,861 @@
+/**
+ * TDS (Tabular Data Stream) client for connecting to SQL Server / SSIS Catalog.
+ * Wraps the mssql library for SSIS-specific operations.
+ */
+
+import * as sql from 'mssql';
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+export interface TdsConnectionConfig {
+  server: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  trustedConnection?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog DTOs
+// ---------------------------------------------------------------------------
+
+export interface CatalogFolder {
+  folderId: number;
+  name: string;
+  description: string;
+  createdTime: Date;
+}
+
+export interface CatalogProject {
+  projectId: number;
+  folderId: number;
+  name: string;
+  description: string;
+  deployedByName: string;
+  lastDeployedTime: Date;
+}
+
+export interface CatalogPackage {
+  packageId: number;
+  projectId: number;
+  name: string;
+  description: string;
+  packageFormatVersion: number;
+}
+
+export interface CatalogEnvironment {
+  environmentId: number;
+  folderId: number;
+  name: string;
+  description: string;
+}
+
+export interface CatalogEnvVariable {
+  variableId: number;
+  environmentId: number;
+  name: string;
+  description: string;
+  type: string;
+  value: string;
+  sensitive: boolean;
+}
+
+export interface ExecutionStatus {
+  executionId: number;
+  /** 1=created, 2=running, 3=canceled, 4=failed, 5=pending, 6=ended_unexpect, 7=succeeded, 9=completing */
+  status: number;
+  startTime: Date;
+  endTime?: Date;
+}
+
+export interface ExecutionMessage {
+  messageId: number;
+  eventMessageId: number;
+  messageTime: Date;
+  messageType: number;
+  messageSourceType: number;
+  message: string;
+  packageName: string;
+  eventName: string;
+  executionPath: string;
+}
+
+export interface ExecutionHistory {
+  executionId: number;
+  folderName: string;
+  projectName: string;
+  packageName: string;
+  status: number;
+  startTime: Date;
+  endTime?: Date;
+  executedAsName: string;
+}
+
+export interface EnvironmentReference {
+  referenceId: number;
+  projectId: number;
+  environmentName: string;
+  environmentFolderName: string | null;
+  referenceType: 'R' | 'A';
+}
+
+export interface DataStatistic {
+  dataStatisticsId: number;
+  executionId: number;
+  packageName: string;
+  dataflowPathIdString: string;
+  sourceName: string;
+  destinationName: string;
+  rowsSent: number;
+  createdTime: Date;
+}
+
+export interface ExecutionParameter {
+  executionId: number;
+  objectType: number;
+  parameterName: string;
+  parameterValue: any;
+  sensitiveParameterValue: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Status helpers
+// ---------------------------------------------------------------------------
+
+const EXECUTION_STATUS_LABELS: Record<number, string> = {
+  1: 'Created',
+  2: 'Running',
+  3: 'Canceled',
+  4: 'Failed',
+  5: 'Pending',
+  6: 'Ended Unexpectedly',
+  7: 'Succeeded',
+  9: 'Completing',
+};
+
+export function executionStatusLabel(status: number): string {
+  return EXECUTION_STATUS_LABELS[status] ?? `Unknown (${status})`;
+}
+
+// ---------------------------------------------------------------------------
+// TDS Client
+// ---------------------------------------------------------------------------
+
+export class TdsClient {
+  private pool: sql.ConnectionPool | undefined;
+  private connected = false;
+
+  // ── Connection management ───────────────────────────────────────────
+
+  async connect(config: TdsConnectionConfig): Promise<boolean> {
+    try {
+      const sqlConfig: sql.config = {
+        server: config.server,
+        port: config.port ?? 1433,
+        database: config.database ?? 'master',
+        options: {
+          encrypt: false,
+          trustServerCertificate: true,
+        },
+      };
+
+      if (config.trustedConnection) {
+        (sqlConfig as any).authentication = {
+          type: 'ntlm',
+          options: { domain: '' },
+        };
+      } else {
+        sqlConfig.user = config.user;
+        sqlConfig.password = config.password;
+      }
+
+      this.pool = new sql.ConnectionPool(sqlConfig);
+      await this.pool.connect();
+      this.connected = true;
+      return true;
+    } catch (err) {
+      this.connected = false;
+      throw err;
+    }
+  }
+
+  async connectWithConnectionString(connectionString: string): Promise<boolean> {
+    try {
+      this.pool = new sql.ConnectionPool(connectionString);
+      await this.pool.connect();
+      this.connected = true;
+      return true;
+    } catch (err) {
+      this.connected = false;
+      throw err;
+    }
+  }
+
+  async testConnection(connectionString: string): Promise<{ success: boolean; error?: string }> {
+    let testPool: sql.ConnectionPool | undefined;
+    try {
+      const config = this.parseConnectionString(connectionString);
+      testPool = new sql.ConnectionPool(config);
+      await testPool.connect();
+      await testPool.close();
+      return { success: true };
+    } catch (err: any) {
+      try { testPool?.close(); } catch { /* ignore cleanup error */ }
+      const errorMessage =
+        err?.message ??
+        err?.originalError?.message ??
+        'Unknown connection error';
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (this.pool) {
+      try {
+        await this.pool.close();
+      } catch { /* ignore */ }
+      this.pool = undefined;
+    }
+    this.connected = false;
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  // ── Generic query helpers ───────────────────────────────────────────
+
+  async executeQuery(sqlText: string): Promise<any[]> {
+    this._ensureConnected();
+    const result = await this.pool!.request().query(sqlText);
+    return result.recordset ?? [];
+  }
+
+  async executeProcedure(name: string, params: Record<string, any>): Promise<any> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    for (const [key, value] of Object.entries(params)) {
+      request.input(key, value);
+    }
+    const result = await request.execute(name);
+    return result.recordset ?? [];
+  }
+
+  async query<T = unknown>(sqlText: string, params?: Record<string, unknown>): Promise<T[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        request.input(key, value as any);
+      }
+    }
+    const result = await request.query(sqlText);
+    return (result.recordset ?? []) as T[];
+  }
+
+  // ── Catalog browsing ────────────────────────────────────────────────
+
+  async getCatalogFolders(): Promise<CatalogFolder[]> {
+    this._ensureConnected();
+    const rows = await this.executeQuery(
+      `SELECT folder_id, name, description, created_time
+       FROM [SSISDB].[catalog].[folders]
+       ORDER BY name`,
+    );
+    return rows.map((r: any) => ({
+      folderId: r.folder_id,
+      name: r.name,
+      description: r.description ?? '',
+      createdTime: new Date(r.created_time),
+    }));
+  }
+
+  async getProjects(folderId: number): Promise<CatalogProject[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folderId', sql.BigInt, folderId);
+    const result = await request.query(
+      `SELECT project_id, folder_id, name, description,
+              deployed_by_name, last_deployed_time
+       FROM [SSISDB].[catalog].[projects]
+       WHERE folder_id = @folderId
+       ORDER BY name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      projectId: r.project_id,
+      folderId: r.folder_id,
+      name: r.name,
+      description: r.description ?? '',
+      deployedByName: r.deployed_by_name ?? '',
+      lastDeployedTime: r.last_deployed_time ? new Date(r.last_deployed_time) : new Date(),
+    }));
+  }
+
+  async getPackages(projectId: number): Promise<CatalogPackage[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('projectId', sql.BigInt, projectId);
+    const result = await request.query(
+      `SELECT package_id, project_id, name, description, package_format_version
+       FROM [SSISDB].[catalog].[packages]
+       WHERE project_id = @projectId
+       ORDER BY name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      packageId: r.package_id,
+      projectId: r.project_id,
+      name: r.name,
+      description: r.description ?? '',
+      packageFormatVersion: r.package_format_version ?? 0,
+    }));
+  }
+
+  async getEnvironments(folderId: number): Promise<CatalogEnvironment[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folderId', sql.BigInt, folderId);
+    const result = await request.query(
+      `SELECT environment_id, folder_id, name, description
+       FROM [SSISDB].[catalog].[environments]
+       WHERE folder_id = @folderId
+       ORDER BY name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      environmentId: r.environment_id,
+      folderId: r.folder_id,
+      name: r.name,
+      description: r.description ?? '',
+    }));
+  }
+
+  async getEnvironmentVariables(environmentId: number): Promise<CatalogEnvVariable[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('environmentId', sql.BigInt, environmentId);
+    const result = await request.query(
+      `SELECT variable_id, environment_id, name, description,
+              type, value, sensitive
+       FROM [SSISDB].[catalog].[environment_variables]
+       WHERE environment_id = @environmentId
+       ORDER BY name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      variableId: r.variable_id,
+      environmentId: r.environment_id,
+      name: r.name,
+      description: r.description ?? '',
+      type: r.type ?? 'String',
+      value: r.sensitive ? '' : String(r.value ?? ''),
+      sensitive: !!r.sensitive,
+    }));
+  }
+
+  // ── Deployment ──────────────────────────────────────────────────────
+
+  /**
+   * Deploy a project (.ispac binary) to SSISDB via `catalog.deploy_project`.
+   */
+  async deployProject(folderName: string, projectName: string, ispacData: Buffer): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('project_name', sql.NVarChar(128), projectName);
+    request.input('project_stream', sql.VarBinary(sql.MAX), ispacData);
+    await request.execute('[SSISDB].[catalog].[deploy_project]');
+  }
+
+  // ── Execution ───────────────────────────────────────────────────────
+
+  /**
+   * Create an execution instance. Returns the execution_id.
+   */
+  async createExecution(
+    packageName: string,
+    folderName: string,
+    projectName: string,
+    environmentRef?: number,
+    use32bit?: boolean,
+  ): Promise<number> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('package_name', sql.NVarChar(260), packageName);
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('project_name', sql.NVarChar(128), projectName);
+    request.input('use32bitruntime', sql.Bit, use32bit ? 1 : 0);
+    if (environmentRef !== undefined) {
+      request.input('reference_id', sql.BigInt, environmentRef);
+    } else {
+      request.input('reference_id', sql.BigInt, null);
+    }
+    request.output('execution_id', sql.BigInt);
+    const result = await request.execute('[SSISDB].[catalog].[create_execution]');
+    return result.output.execution_id as number;
+  }
+
+  /**
+   * Set a parameter value on an execution.
+   */
+  async setExecutionParameterValue(
+    executionId: number,
+    objectType: number,
+    parameterName: string,
+    parameterValue: any,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('execution_id', sql.BigInt, executionId);
+    request.input('object_type', sql.SmallInt, objectType);
+    request.input('parameter_name', sql.NVarChar(128), parameterName);
+    request.input('parameter_value', sql.NVarChar(sql.MAX), String(parameterValue));
+    await request.execute('[SSISDB].[catalog].[set_execution_parameter_value]');
+  }
+
+  /**
+   * Start an execution.
+   */
+  async startExecution(executionId: number): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('execution_id', sql.BigInt, executionId);
+    await request.execute('[SSISDB].[catalog].[start_execution]');
+  }
+
+  /**
+   * Get the current status of an execution.
+   */
+  async getExecutionStatus(executionId: number): Promise<ExecutionStatus> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('executionId', sql.BigInt, executionId);
+    const result = await request.query(
+      `SELECT execution_id, status, start_time, end_time
+       FROM [SSISDB].[catalog].[executions]
+       WHERE execution_id = @executionId`,
+    );
+    const r = result.recordset[0];
+    if (!r) { throw new Error(`Execution ${executionId} not found`); }
+    return {
+      executionId: r.execution_id,
+      status: r.status,
+      startTime: new Date(r.start_time),
+      endTime: r.end_time ? new Date(r.end_time) : undefined,
+    };
+  }
+
+  /**
+   * Get execution messages (event_messages), optionally after a given message id.
+   */
+  async getExecutionMessages(
+    executionId: number,
+    afterMessageId?: number,
+  ): Promise<ExecutionMessage[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('executionId', sql.BigInt, executionId);
+    const afterClause = afterMessageId !== undefined
+      ? `AND em.event_message_id > @afterMessageId`
+      : '';
+    if (afterMessageId !== undefined) {
+      request.input('afterMessageId', sql.BigInt, afterMessageId);
+    }
+    const result = await request.query(
+      `SELECT TOP 500
+              em.event_message_id AS message_id,
+              em.event_message_id,
+              em.message_time,
+              em.message_type,
+              em.message_source_type,
+              em.message,
+              em.package_name,
+              em.event_name,
+              em.execution_path
+       FROM [SSISDB].[catalog].[event_messages] em
+       WHERE em.operation_id = @executionId
+         ${afterClause}
+       ORDER BY em.event_message_id ASC`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      messageId: r.message_id,
+      eventMessageId: r.event_message_id,
+      messageTime: new Date(r.message_time),
+      messageType: r.message_type,
+      messageSourceType: r.message_source_type,
+      message: r.message ?? '',
+      packageName: r.package_name ?? '',
+      eventName: r.event_name ?? '',
+      executionPath: r.execution_path ?? '',
+    }));
+  }
+
+  /**
+   * Get execution history for a project/package.
+   */
+  async getExecutionHistory(
+    projectName?: string,
+    packageName?: string,
+    top = 50,
+  ): Promise<ExecutionHistory[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    const clauses: string[] = [];
+    if (projectName) {
+      request.input('projectName', sql.NVarChar(128), projectName);
+      clauses.push('e.project_name = @projectName');
+    }
+    if (packageName) {
+      request.input('packageName', sql.NVarChar(260), packageName);
+      clauses.push('e.package_name = @packageName');
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    request.input('top', sql.Int, top);
+    const result = await request.query(
+      `SELECT TOP (@top)
+              e.execution_id, e.folder_name, e.project_name, e.package_name,
+              e.status, e.start_time, e.end_time, e.executed_as_name
+       FROM [SSISDB].[catalog].[executions] e
+       ${where}
+       ORDER BY e.execution_id DESC`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      executionId: r.execution_id,
+      folderName: r.folder_name ?? '',
+      projectName: r.project_name ?? '',
+      packageName: r.package_name ?? '',
+      status: r.status,
+      startTime: new Date(r.start_time),
+      endTime: r.end_time ? new Date(r.end_time) : undefined,
+      executedAsName: r.executed_as_name ?? '',
+    }));
+  }
+
+  // ── SSISDB folder management ────────────────────────────────────────
+
+  /**
+   * Create a folder in SSISDB.
+   */
+  async createCatalogFolder(folderName: string, description = ''): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('folder_description', sql.NVarChar(1024), description);
+    await request.execute('[SSISDB].[catalog].[create_folder]');
+  }
+
+  // ── Environment management ──────────────────────────────────────────
+
+  /**
+   * Create a new environment in SSISDB.
+   */
+  async createEnvironment(folderName: string, envName: string, description?: string): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    request.input('environment_description', sql.NVarChar(1024), description ?? '');
+    await request.execute('[SSISDB].[catalog].[create_environment]');
+  }
+
+  /**
+   * Delete an environment from SSISDB.
+   */
+  async deleteEnvironment(folderName: string, envName: string): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    await request.execute('[SSISDB].[catalog].[delete_environment]');
+  }
+
+  /**
+   * Set an environment property (e.g. description).
+   */
+  async setEnvironmentProperty(
+    folderName: string,
+    envName: string,
+    propertyName: string,
+    propertyValue: string,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    request.input('property_name', sql.NVarChar(128), propertyName);
+    request.input('property_value', sql.NVarChar(4000), propertyValue);
+    await request.execute('[SSISDB].[catalog].[set_environment_property]');
+  }
+
+  /**
+   * Create an environment variable.
+   */
+  async createEnvironmentVariable(
+    folderName: string,
+    envName: string,
+    varName: string,
+    type: string,
+    value: any,
+    sensitive: boolean,
+    description?: string,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    request.input('variable_name', sql.NVarChar(128), varName);
+    request.input('data_type', sql.NVarChar(128), type);
+    request.input('sensitive', sql.Bit, sensitive ? 1 : 0);
+    request.input('value', sql.NVarChar(sql.MAX), value != null ? String(value) : '');
+    request.input('description', sql.NVarChar(1024), description ?? '');
+    await request.execute('[SSISDB].[catalog].[create_environment_variable]');
+  }
+
+  /**
+   * Set the value of an existing environment variable.
+   */
+  async setEnvironmentVariableValue(
+    folderName: string,
+    envName: string,
+    varName: string,
+    value: any,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    request.input('variable_name', sql.NVarChar(128), varName);
+    request.input('value', sql.NVarChar(sql.MAX), value != null ? String(value) : '');
+    await request.execute('[SSISDB].[catalog].[set_environment_variable_value]');
+  }
+
+  /**
+   * Delete an environment variable.
+   */
+  async deleteEnvironmentVariable(
+    folderName: string,
+    envName: string,
+    varName: string,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    request.input('variable_name', sql.NVarChar(128), varName);
+    await request.execute('[SSISDB].[catalog].[delete_environment_variable]');
+  }
+
+  /**
+   * Get environment variables by folder name and environment name.
+   */
+  async getEnvironmentVariablesByName(
+    folderName: string,
+    environmentName: string,
+  ): Promise<CatalogEnvVariable[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folderName', sql.NVarChar(128), folderName);
+    request.input('envName', sql.NVarChar(128), environmentName);
+    const result = await request.query(
+      `SELECT ev.variable_id, ev.environment_id, ev.name, ev.description,
+              ev.type, ev.value, ev.sensitive
+       FROM [SSISDB].[catalog].[environment_variables] ev
+       INNER JOIN [SSISDB].[catalog].[environments] e
+         ON ev.environment_id = e.environment_id
+       INNER JOIN [SSISDB].[catalog].[folders] f
+         ON e.folder_id = f.folder_id
+       WHERE f.name = @folderName AND e.name = @envName
+       ORDER BY ev.name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      variableId: r.variable_id,
+      environmentId: r.environment_id,
+      name: r.name,
+      description: r.description ?? '',
+      type: r.type ?? 'String',
+      value: r.sensitive ? '' : String(r.value ?? ''),
+      sensitive: !!r.sensitive,
+    }));
+  }
+
+  // ── Environment references ──────────────────────────────────────────
+
+  /**
+   * Get environment references for a project.
+   */
+  async getEnvironmentReferences(
+    projectName: string,
+    folderName: string,
+  ): Promise<EnvironmentReference[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('projectName', sql.NVarChar(128), projectName);
+    request.input('folderName', sql.NVarChar(128), folderName);
+    const result = await request.query(
+      `SELECT er.reference_id, er.project_id, er.environment_name,
+              er.environment_folder_name, er.reference_type
+       FROM [SSISDB].[catalog].[environment_references] er
+       INNER JOIN [SSISDB].[catalog].[projects] p
+         ON er.project_id = p.project_id
+       INNER JOIN [SSISDB].[catalog].[folders] f
+         ON p.folder_id = f.folder_id
+       WHERE p.name = @projectName AND f.name = @folderName
+       ORDER BY er.environment_name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      referenceId: r.reference_id,
+      projectId: r.project_id,
+      environmentName: r.environment_name,
+      environmentFolderName: r.environment_folder_name ?? null,
+      referenceType: r.reference_type as 'R' | 'A',
+    }));
+  }
+
+  /**
+   * Create an environment reference for a project.
+   */
+  async createEnvironmentReference(
+    projectName: string,
+    folderName: string,
+    envName: string,
+    envFolderName?: string,
+  ): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('folder_name', sql.NVarChar(128), folderName);
+    request.input('project_name', sql.NVarChar(128), projectName);
+    request.input('environment_name', sql.NVarChar(128), envName);
+    // Reference type: 'R' for relative (same folder), 'A' for absolute
+    const refType = envFolderName ? 'A' : 'R';
+    request.input('reference_type', sql.Char(1), refType);
+    if (envFolderName) {
+      request.input('environment_folder_name', sql.NVarChar(128), envFolderName);
+    } else {
+      request.input('environment_folder_name', sql.NVarChar(128), null);
+    }
+    request.output('reference_id', sql.BigInt);
+    await request.execute('[SSISDB].[catalog].[create_environment_reference]');
+  }
+
+  /**
+   * Delete an environment reference by reference_id.
+   */
+  async deleteEnvironmentReference(referenceId: number): Promise<void> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('reference_id', sql.BigInt, referenceId);
+    await request.execute('[SSISDB].[catalog].[delete_environment_reference]');
+  }
+
+  // ── Execution data statistics & parameters ──────────────────────────
+
+  /**
+   * Get data statistics (row counts per component) for an execution.
+   */
+  async getExecutionDataStatistics(executionId: number): Promise<DataStatistic[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('executionId', sql.BigInt, executionId);
+    const result = await request.query(
+      `SELECT eds.data_stats_id, eds.execution_id, eds.package_name,
+              eds.dataflow_path_id_string, eds.source_component_name,
+              eds.destination_component_name, eds.rows_sent, eds.created_time
+       FROM [SSISDB].[catalog].[execution_data_statistics] eds
+       WHERE eds.execution_id = @executionId
+       ORDER BY eds.created_time ASC`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      dataStatisticsId: r.data_stats_id,
+      executionId: r.execution_id,
+      packageName: r.package_name ?? '',
+      dataflowPathIdString: r.dataflow_path_id_string ?? '',
+      sourceName: r.source_component_name ?? '',
+      destinationName: r.destination_component_name ?? '',
+      rowsSent: r.rows_sent ?? 0,
+      createdTime: r.created_time ? new Date(r.created_time) : new Date(),
+    }));
+  }
+
+  /**
+   * Get parameter values used in an execution.
+   */
+  async getExecutionParameters(executionId: number): Promise<ExecutionParameter[]> {
+    this._ensureConnected();
+    const request = this.pool!.request();
+    request.input('executionId', sql.BigInt, executionId);
+    const result = await request.query(
+      `SELECT epv.execution_id, epv.object_type, epv.parameter_name,
+              epv.parameter_value, epv.sensitive
+       FROM [SSISDB].[catalog].[execution_parameter_values] epv
+       WHERE epv.execution_id = @executionId
+       ORDER BY epv.parameter_name`,
+    );
+    return (result.recordset ?? []).map((r: any) => ({
+      executionId: r.execution_id,
+      objectType: r.object_type,
+      parameterName: r.parameter_name ?? '',
+      parameterValue: r.sensitive ? null : r.parameter_value,
+      sensitiveParameterValue: !!r.sensitive,
+    }));
+  }
+
+  // ── Internals ───────────────────────────────────────────────────────
+
+  private _ensureConnected(): void {
+    if (!this.pool || !this.connected) {
+      throw new Error('Not connected to SQL Server');
+    }
+  }
+
+  /**
+   * Parse an OLEDB/ADO.NET-style connection string into an mssql config object.
+   */
+  parseConnectionString(connectionString: string): sql.config {
+    const parts = new Map<string, string>();
+    for (const segment of connectionString.split(';')) {
+      const eqIdx = segment.indexOf('=');
+      if (eqIdx > 0) {
+        const key = segment.substring(0, eqIdx).trim().toLowerCase();
+        const value = segment.substring(eqIdx + 1).trim();
+        parts.set(key, value);
+      }
+    }
+
+    const server = parts.get('server') ?? parts.get('data source') ?? 'localhost';
+    const database = parts.get('database') ?? parts.get('initial catalog') ?? 'master';
+    const user = parts.get('user id') ?? parts.get('uid') ?? parts.get('user') ?? '';
+    const password = parts.get('password') ?? parts.get('pwd') ?? '';
+    const integratedSecurity = parts.get('integrated security')?.toLowerCase();
+    const trusted = integratedSecurity === 'sspi' || integratedSecurity === 'true';
+
+    let host = server;
+    let port = 1433;
+    if (server.includes(',')) {
+      const [h, p] = server.split(',');
+      host = h;
+      port = parseInt(p, 10) || 1433;
+    }
+
+    const config: sql.config = {
+      server: host,
+      port,
+      database,
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+      },
+    };
+
+    if (trusted) {
+      (config as any).authentication = {
+        type: 'ntlm',
+        options: { domain: '' },
+      };
+    } else {
+      config.user = user;
+      config.password = password;
+    }
+
+    return config;
+  }
+}

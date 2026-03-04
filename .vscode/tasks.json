@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "compile",
+      "type": "shell",
+      "command": "npm run compile",
+      "problemMatcher": "$tsc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "build:webview",
+      "type": "shell",
+      "command": "npm run build:webview",
+      "problemMatcher": []
+    },
+    {
+      "label": "build all",
+      "dependsOn": ["compile", "build:webview"],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "watch",
+      "type": "shell",
+      "command": "npm run watch",
+      "problemMatcher": "$tsc-watch",
+      "isBackground": true
+    }
+  ]
+}

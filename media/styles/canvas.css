@@ -1,0 +1,3713 @@
+/* =========================================================================
+   SSIS Designer Canvas Styles
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   CSS Custom Properties (VS Code theme integration)
+   ------------------------------------------------------------------------- */
+
+:root {
+    --canvas-bg: var(--vscode-editor-background, #1e1e1e);
+    --canvas-fg: var(--vscode-foreground, #cccccc);
+    --canvas-border: var(--vscode-panel-border, #333333);
+    --node-bg: var(--vscode-editorWidget-background, #252526);
+    --node-border: var(--vscode-editorWidget-border, #454545);
+    --node-selected-border: var(--vscode-focusBorder, #007fd4);
+
+    --panel-bg: var(--vscode-sideBar-background, #252526);
+    --panel-fg: var(--vscode-sideBar-foreground, #cccccc);
+    --panel-header-bg: var(--vscode-sideBarSectionHeader-background, #333333);
+    --panel-header-fg: var(--vscode-sideBarSectionHeader-foreground, #cccccc);
+    --panel-border: var(--vscode-panel-border, #333333);
+
+    --input-bg: var(--vscode-input-background, #3c3c3c);
+    --input-fg: var(--vscode-input-foreground, #cccccc);
+    --input-border: var(--vscode-input-border, #555555);
+    --input-focus-border: var(--vscode-focusBorder, #007fd4);
+
+    --button-bg: var(--vscode-button-background, #0e639c);
+    --button-fg: var(--vscode-button-foreground, #ffffff);
+    --button-hover-bg: var(--vscode-button-hoverBackground, #1177bb);
+
+    --hover-bg: var(--vscode-list-hoverBackground, #2a2d2e);
+    --active-bg: var(--vscode-list-activeSelectionBackground, #094771);
+    --active-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+
+    --error-fg: var(--vscode-errorForeground, #f44336);
+    --scrollbar-bg: var(--vscode-scrollbarSlider-background, rgba(121,121,121,0.4));
+    --scrollbar-hover-bg: var(--vscode-scrollbarSlider-hoverBackground, rgba(100,100,100,0.7));
+}
+
+/* -------------------------------------------------------------------------
+   Global Reset
+   ------------------------------------------------------------------------- */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--canvas-bg);
+    color: var(--canvas-fg);
+    font-family: var(--vscode-font-family, 'Segoe UI', sans-serif);
+    font-size: var(--vscode-font-size, 13px);
+}
+
+#root {
+    width: 100%;
+    height: 100%;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------------------
+   3-Panel Layout
+   ------------------------------------------------------------------------- */
+
+.ssis-layout {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.ssis-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.ssis-canvas-wrapper {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+/* -------------------------------------------------------------------------
+   Resize Handles
+   ------------------------------------------------------------------------- */
+
+.ssis-resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+    transition: background-color 0.15s;
+}
+
+.ssis-resize-handle:hover,
+.ssis-resize-handle:active {
+    background: var(--node-selected-border);
+}
+
+.ssis-resize-handle--left {
+    margin-left: -2px;
+    margin-right: -2px;
+}
+
+.ssis-resize-handle--right {
+    margin-left: -2px;
+    margin-right: -2px;
+}
+
+/* -------------------------------------------------------------------------
+   Canvas
+   ------------------------------------------------------------------------- */
+
+.ssis-canvas {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+/* React Flow overrides */
+.react-flow__node {
+    cursor: grab;
+}
+.react-flow__node:active {
+    cursor: grabbing;
+}
+
+/* -------------------------------------------------------------------------
+   Node Styles
+   ------------------------------------------------------------------------- */
+
+.ssis-node {
+    background: var(--node-bg);
+    border: 1px solid var(--node-border);
+    border-radius: 4px;
+    min-width: 150px;
+    cursor: grab;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ssis-node:active {
+    cursor: grabbing;
+}
+
+.ssis-node.selected,
+.ssis-node:focus-within {
+    border-color: var(--node-selected-border);
+    box-shadow: 0 0 0 1px var(--node-selected-border);
+}
+
+.ssis-node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.ssis-node-body {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.ssis-container-node {
+    min-width: 300px;
+    min-height: 200px;
+}
+
+/* -------------------------------------------------------------------------
+   Task Palette (Left Sidebar)
+   ------------------------------------------------------------------------- */
+
+.ssis-palette {
+    width: 100%;
+    height: 100%;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+}
+
+.ssis-palette--collapsed {
+    width: 28px;
+    min-width: 28px;
+    background: var(--panel-bg);
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    writing-mode: vertical-lr;
+    font-size: 12px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+}
+
+.ssis-palette--collapsed:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-palette__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-palette__title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-palette__collapse-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.ssis-palette__collapse-btn:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-palette__search {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-palette__search-input {
+    width: 100%;
+    padding: 4px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    outline: none;
+}
+
+.ssis-palette__search-input:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-palette__search-input::placeholder {
+    color: var(--input-fg);
+    opacity: 0.5;
+}
+
+.ssis-palette__list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.ssis-palette__group {
+    margin-bottom: 4px;
+}
+
+.ssis-palette__group-header {
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--panel-fg);
+    opacity: 0.6;
+}
+
+.ssis-palette__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px 5px 20px;
+    cursor: grab;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    border-radius: 0;
+    transition: background-color 0.1s;
+}
+
+.ssis-palette__item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-palette__item:active {
+    cursor: grabbing;
+    background: var(--active-bg);
+    color: var(--active-fg);
+}
+
+.ssis-palette__item-icon {
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.ssis-palette__item-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* -------------------------------------------------------------------------
+   Property Panel (Right Sidebar)
+   ------------------------------------------------------------------------- */
+
+.ssis-properties {
+    width: 100%;
+    height: 100%;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+}
+
+.ssis-properties--collapsed {
+    width: 28px;
+    min-width: 28px;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--panel-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    writing-mode: vertical-lr;
+    font-size: 12px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+}
+
+.ssis-properties--collapsed:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-properties__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-properties__title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-properties__subtitle {
+    font-size: 11px;
+    opacity: 0.7;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+
+.ssis-properties__collapse-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0.7;
+    margin-left: auto;
+}
+
+.ssis-properties__collapse-btn:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-properties__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    gap: 8px;
+    color: var(--panel-fg);
+    opacity: 0.5;
+    text-align: center;
+}
+
+.ssis-properties__hint {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.ssis-properties__body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+/* Property section (collapsible) */
+.ssis-prop-section {
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-prop-section-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    background: var(--panel-header-bg);
+    user-select: none;
+}
+
+.ssis-prop-section-header:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-prop-section-chevron {
+    width: 12px;
+    text-align: center;
+    font-size: 10px;
+}
+
+.ssis-prop-section-body {
+    padding: 4px 0;
+}
+
+/* Property row */
+.ssis-prop-row {
+    display: flex;
+    flex-direction: column;
+    padding: 3px 12px;
+    gap: 2px;
+}
+
+.ssis-prop-label {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.8;
+    cursor: default;
+}
+
+/* Property inputs */
+.ssis-prop-input,
+.ssis-prop-select,
+.ssis-prop-textarea {
+    width: 100%;
+    padding: 3px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+}
+
+.ssis-prop-input:focus,
+.ssis-prop-select:focus,
+.ssis-prop-textarea:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-prop-textarea {
+    resize: vertical;
+    min-height: 40px;
+}
+
+.ssis-prop-expression {
+    font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+    font-size: 12px;
+}
+
+.ssis-prop-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ssis-prop-toggle input[type="checkbox"] {
+    accent-color: var(--button-bg);
+}
+
+/* -------------------------------------------------------------------------
+   Variable Panel (Bottom Panel)
+   ------------------------------------------------------------------------- */
+
+.ssis-variables {
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    max-height: 250px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ssis-variables--collapsed {
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+    text-align: center;
+}
+
+.ssis-variables--collapsed:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-variables__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    gap: 8px;
+}
+
+.ssis-variables__title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-variables__scope {
+    font-size: 11px;
+    opacity: 0.7;
+    flex: 1;
+}
+
+.ssis-variables__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ssis-variables__scope-select {
+    padding: 1px 4px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 11px;
+    outline: none;
+}
+
+.ssis-variables__add-btn,
+.ssis-variables__collapse-btn {
+    background: none;
+    border: 1px solid var(--input-border);
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 14px;
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.ssis-variables__add-btn:hover,
+.ssis-variables__collapse-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-variables__table-wrapper {
+    flex: 1;
+    overflow: auto;
+}
+
+.ssis-variables__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-variables__table th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-header-bg);
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-variables__table td {
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.ssis-variables__table tr:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-variables__row--editing {
+    background: var(--active-bg) !important;
+}
+
+.ssis-variables__empty {
+    text-align: center;
+    opacity: 0.5;
+    padding: 12px !important;
+}
+
+.ssis-variables__row-actions {
+    display: flex;
+    gap: 2px;
+}
+
+/* Variable inline inputs */
+.ssis-var-input,
+.ssis-var-select {
+    padding: 1px 4px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 2px;
+    font-size: 11px;
+    outline: none;
+    width: 100%;
+    max-width: 120px;
+}
+
+.ssis-var-input:focus,
+.ssis-var-select:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-var-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 1px 3px;
+    border-radius: 2px;
+    opacity: 0.7;
+}
+
+.ssis-var-btn:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-var-btn--delete {
+    color: var(--error-fg);
+}
+
+/* -------------------------------------------------------------------------
+   Context Menu
+   ------------------------------------------------------------------------- */
+
+.ssis-context-menu {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    padding: 4px 0;
+    z-index: 1000;
+    min-width: 140px;
+}
+
+.ssis-context-menu__item {
+    display: block;
+    width: 100%;
+    padding: 5px 16px;
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.ssis-context-menu__item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-context-menu__item--danger {
+    color: var(--error-fg);
+}
+
+.ssis-context-menu__separator {
+    height: 1px;
+    background: var(--panel-border);
+    margin: 4px 0;
+}
+
+/* -------------------------------------------------------------------------
+   Edge label
+   ------------------------------------------------------------------------- */
+
+.ssis-edge-label {
+    font-family: var(--vscode-font-family, 'Segoe UI', sans-serif);
+}
+
+/* -------------------------------------------------------------------------
+   React Flow Handle overrides
+   ------------------------------------------------------------------------- */
+
+.react-flow__handle {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid var(--node-bg);
+}
+
+/* -------------------------------------------------------------------------
+   Scrollbars
+   ------------------------------------------------------------------------- */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-bg);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-hover-bg);
+}
+
+/* -------------------------------------------------------------------------
+   Focus styles
+   ------------------------------------------------------------------------- */
+
+*:focus-visible {
+    outline: 1px solid var(--input-focus-border);
+    outline-offset: -1px;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 1px solid var(--input-focus-border);
+    outline-offset: 0;
+}
+
+/* -------------------------------------------------------------------------
+   React Flow MiniMap overrides
+   ------------------------------------------------------------------------- */
+
+.react-flow__minimap {
+    border: 1px solid var(--panel-border) !important;
+    border-radius: 4px;
+}
+
+/* -------------------------------------------------------------------------
+   React Flow Controls overrides
+   ------------------------------------------------------------------------- */
+
+.react-flow__controls {
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    box-shadow: none;
+}
+
+.react-flow__controls-button {
+    background: var(--panel-bg) !important;
+    border-bottom: 1px solid var(--panel-border) !important;
+    fill: var(--panel-fg) !important;
+}
+
+.react-flow__controls-button:hover {
+    background: var(--hover-bg) !important;
+}
+
+/* -------------------------------------------------------------------------
+   Light theme overrides (VS Code light theme detected)
+   ------------------------------------------------------------------------- */
+
+.ssis-theme-light .ssis-context-menu {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* =========================================================================
+   Toolbar
+   ========================================================================= */
+
+.ssis-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    min-height: 30px;
+}
+
+.ssis-toolbar__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: var(--input-bg);
+    color: var(--panel-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.1s;
+}
+
+.ssis-toolbar__btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-toolbar__btn:active {
+    background: var(--active-bg);
+    color: var(--active-fg);
+}
+
+/* =========================================================================
+   Bottom Tab Bar
+   ========================================================================= */
+
+.ssis-bottom-tabs {
+    display: flex;
+    background: var(--panel-header-bg);
+    border-top: 1px solid var(--panel-border);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 0;
+    gap: 0;
+}
+
+.ssis-bottom-tabs__tab {
+    padding: 4px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-fg);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s, border-color 0.15s;
+}
+
+.ssis-bottom-tabs__tab:hover {
+    opacity: 0.9;
+    background: var(--hover-bg);
+}
+
+.ssis-bottom-tabs__tab--active {
+    opacity: 1;
+    border-bottom-color: var(--button-bg);
+    color: var(--panel-header-fg);
+}
+
+/* =========================================================================
+   Parameter Panel (Bottom Panel - mirrors Variable Panel)
+   ========================================================================= */
+
+.ssis-parameters {
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    max-height: 250px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ssis-parameters--collapsed {
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+    text-align: center;
+}
+
+.ssis-parameters--collapsed:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-parameters__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    gap: 8px;
+}
+
+.ssis-parameters__title {
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-parameters__actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ssis-parameters__filter {
+    padding: 1px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 11px;
+    outline: none;
+    width: 100px;
+}
+
+.ssis-parameters__filter:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-parameters__add-btn,
+.ssis-parameters__collapse-btn {
+    background: none;
+    border: 1px solid var(--input-border);
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 14px;
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.ssis-parameters__add-btn:hover,
+.ssis-parameters__collapse-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-parameters__table-wrapper {
+    flex: 1;
+    overflow: auto;
+}
+
+.ssis-parameters__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-parameters__table th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-header-bg);
+    padding: 4px 8px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-parameters__table td {
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.ssis-parameters__table tr:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-parameters__row--editing {
+    background: var(--active-bg) !important;
+}
+
+.ssis-parameters__empty {
+    text-align: center;
+    opacity: 0.5;
+    padding: 12px !important;
+}
+
+.ssis-parameters__row-actions {
+    display: flex;
+    gap: 2px;
+}
+
+/* =========================================================================
+   Variable Panel Enhancements
+   ========================================================================= */
+
+.ssis-variables__filter {
+    padding: 1px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 11px;
+    outline: none;
+    width: 100px;
+}
+
+.ssis-variables__filter:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-variables__th--sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.ssis-variables__th--sortable:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-variables__row--system {
+    opacity: 0.6;
+}
+
+.ssis-var-readonly-badge {
+    font-size: 10px;
+    margin-left: 2px;
+}
+
+.ssis-var-expression-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ssis-var-expression-toggle {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.7;
+    user-select: none;
+}
+
+.ssis-var-expression-toggle:hover {
+    opacity: 1;
+}
+
+.ssis-var-expression-preview {
+    font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+    font-size: 11px;
+}
+
+.ssis-var-scope-badge {
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    opacity: 0.7;
+}
+
+.ssis-var-btn--disabled {
+    opacity: 0.4;
+    cursor: default;
+    font-size: 10px;
+}
+
+/* =========================================================================
+   Connection Manager Panel (Modal / Slide-out)
+   ========================================================================= */
+
+.ssis-cm-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.ssis-cm-panel {
+    width: 900px;
+    max-width: 92vw;
+    height: 85vh;
+    max-height: 85vh;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.ssis-cm-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-cm-panel__title {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-cm-panel__close {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    opacity: 0.7;
+}
+
+.ssis-cm-panel__close:hover {
+    opacity: 1;
+    background: var(--hover-bg);
+}
+
+.ssis-cm-panel__body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: visible;
+}
+
+/* ---- Connection List (left side) ---- */
+
+.ssis-cm-list {
+    width: 240px;
+    min-width: 200px;
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.ssis-cm-list__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-header-fg);
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-cm-list__add-wrapper {
+    position: relative;
+}
+
+.ssis-cm-list__add-btn {
+    background: none;
+    border: 1px solid var(--input-border);
+    color: var(--panel-fg);
+    cursor: pointer;
+    font-size: 14px;
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.ssis-cm-list__add-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-cm-list__add-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 2100;
+    min-width: 240px;
+    padding: 4px 0;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.ssis-cm-list__add-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ssis-cm-list__add-menu-item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-cm-list__add-menu-icon {
+    font-size: 14px;
+    width: 18px;
+    text-align: center;
+}
+
+.ssis-cm-list__items {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.ssis-cm-list__empty {
+    padding: 16px 12px;
+    text-align: center;
+    font-size: 11px;
+    opacity: 0.5;
+}
+
+.ssis-cm-list__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: background-color 0.1s, border-color 0.1s;
+}
+
+.ssis-cm-list__item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-cm-list__item--active {
+    background: var(--active-bg);
+    color: var(--active-fg);
+    border-left-color: var(--button-bg);
+}
+
+.ssis-cm-list__item-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.ssis-cm-list__item-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ssis-cm-list__item-name {
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ssis-cm-list__item-type {
+    font-size: 10px;
+    opacity: 0.6;
+}
+
+.ssis-cm-list__item-delete {
+    background: none;
+    border: none;
+    color: var(--error-fg);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.ssis-cm-list__item:hover .ssis-cm-list__item-delete {
+    opacity: 0.7;
+}
+
+.ssis-cm-list__item-delete:hover {
+    opacity: 1 !important;
+    background: var(--hover-bg);
+}
+
+/* ---- Connection Editor (right side) ---- */
+
+.ssis-cm-editor {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: visible;
+    min-width: 0;
+}
+
+.ssis-cm-editor__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    font-size: 12px;
+    opacity: 0.5;
+    text-align: center;
+}
+
+.ssis-cm-editor__form {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ssis-cm-editor__divider {
+    height: 1px;
+    background: var(--panel-border);
+    margin: 4px 0;
+}
+
+.ssis-cm-editor__actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid var(--panel-border);
+}
+
+/* ---- Connection Manager Fields ---- */
+
+.ssis-cm-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ssis-cm-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.ssis-cm-field label {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+.ssis-cm-field input[type="text"],
+.ssis-cm-field input[type="password"],
+.ssis-cm-field select,
+.ssis-cm-field textarea {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+}
+
+.ssis-cm-field select {
+    min-height: 30px;
+    cursor: pointer;
+}
+
+.ssis-cm-field select option {
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--panel-bg);
+    color: var(--panel-fg);
+}
+
+.ssis-cm-field input:focus,
+.ssis-cm-field select:focus,
+.ssis-cm-field textarea:focus {
+    border-color: var(--input-focus-border);
+}
+
+.ssis-cm-field textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+}
+
+.ssis-cm-field--checkbox {
+    flex-direction: row;
+    align-items: center;
+}
+
+.ssis-cm-field--checkbox label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ssis-cm-field--checkbox input[type="checkbox"] {
+    accent-color: var(--button-bg);
+}
+
+/* ---- Connection String Preview ---- */
+
+.ssis-cm-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ssis-cm-preview label {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+.ssis-cm-preview__value {
+    display: block;
+    padding: 6px 8px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-family: var(--vscode-editor-font-family, 'Consolas', monospace);
+    font-size: 11px;
+    word-break: break-all;
+    color: var(--input-fg);
+    opacity: 0.8;
+    max-height: 60px;
+    overflow-y: auto;
+}
+
+/* ---- Test Connection Button ---- */
+
+.ssis-cm-test {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ssis-cm-test__btn {
+    padding: 5px 14px;
+    background: var(--input-bg);
+    color: var(--panel-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.ssis-cm-test__btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+}
+
+.ssis-cm-test__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.ssis-cm-test__btn--testing {
+    border-color: var(--button-bg);
+    color: var(--button-bg);
+}
+
+.ssis-cm-test__btn--success {
+    border-color: #4caf50;
+    color: #4caf50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.ssis-cm-test__btn--failure {
+    border-color: var(--error-fg);
+    color: var(--error-fg);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.ssis-cm-test__error {
+    font-size: 11px;
+    color: var(--error-fg);
+    flex: 1;
+}
+
+.ssis-cm-test__success {
+    font-size: 11px;
+    color: #4caf50;
+}
+
+/* ---- Connection Manager Buttons ---- */
+
+.ssis-cm-btn {
+    padding: 5px 16px;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background-color 0.1s;
+}
+
+.ssis-cm-btn--primary {
+    background: var(--button-bg);
+    color: var(--button-fg);
+    border-color: var(--button-bg);
+}
+
+.ssis-cm-btn--primary:hover {
+    background: var(--button-hover-bg);
+}
+
+.ssis-cm-btn--secondary {
+    background: var(--input-bg);
+    color: var(--panel-fg);
+    border-color: var(--input-border);
+}
+
+.ssis-cm-btn--secondary:hover {
+    background: var(--hover-bg);
+}
+
+/* =========================================================================
+   Light theme overrides for new components
+   ========================================================================= */
+
+.ssis-theme-light .ssis-cm-overlay {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.ssis-theme-light .ssis-cm-panel {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.ssis-theme-light .ssis-cm-list__add-menu {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* =========================================================================
+   Data Flow Canvas Styles
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   Data Flow Node Styles
+   ------------------------------------------------------------------------- */
+
+.ssis-df-node {
+    min-width: 220px;
+    min-height: 90px;
+    position: relative;
+}
+
+.ssis-df-node--source {
+    /* Blue accent for source nodes */
+}
+
+.ssis-df-node--transform {
+    /* Orange accent for transform nodes */
+}
+
+.ssis-df-node--destination {
+    /* Green accent for destination nodes */
+}
+
+.ssis-df-node--generic {
+    /* Gray accent for generic/unknown nodes */
+}
+
+/* Column count badge */
+.ssis-df-column-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.2);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.ssis-df-node--source .ssis-df-column-badge {
+    background: #2196F3;
+}
+
+.ssis-df-node--transform .ssis-df-column-badge {
+    background: #FF9800;
+}
+
+.ssis-df-node--destination .ssis-df-column-badge {
+    background: #4CAF50;
+}
+
+/* Error output handle styling */
+.ssis-df-error-handle {
+    width: 6px !important;
+    height: 6px !important;
+    background: #F44336 !important;
+    border: 1px solid var(--node-bg, #252526) !important;
+}
+
+.ssis-df-error-handle:hover {
+    width: 8px !important;
+    height: 8px !important;
+}
+
+/* -------------------------------------------------------------------------
+   Data Path Edge Styles
+   ------------------------------------------------------------------------- */
+
+.ssis-df-edge-label {
+    font-family: var(--vscode-font-family, 'Segoe UI', sans-serif);
+    font-size: 11px;
+    z-index: 10;
+}
+
+.ssis-df-row-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* -------------------------------------------------------------------------
+   Component Palette Styles (Data Flow Toolbox)
+   ------------------------------------------------------------------------- */
+
+.ssis-df-palette__group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 9px !important;
+}
+
+.ssis-df-palette__category-icon {
+    font-size: 12px;
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+}
+
+/* Category color indicators on palette items */
+.ssis-palette__group .ssis-df-palette__group-header {
+    border-left-width: 3px;
+    border-left-style: solid;
+}
+
+/* -------------------------------------------------------------------------
+   Breadcrumb Navigation
+   ------------------------------------------------------------------------- */
+
+.ssis-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    font-size: 12px;
+    user-select: none;
+    min-height: 28px;
+}
+
+.ssis-breadcrumb__back-btn {
+    background: none;
+    border: none;
+    color: var(--button-bg, #0e639c);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+
+.ssis-breadcrumb__back-btn:hover {
+    background: var(--hover-bg);
+    text-decoration: underline;
+}
+
+.ssis-breadcrumb__separator {
+    color: var(--panel-fg);
+    opacity: 0.5;
+    font-size: 11px;
+}
+
+.ssis-breadcrumb__item {
+    color: var(--panel-fg);
+    opacity: 0.7;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ssis-breadcrumb__item--active {
+    opacity: 1;
+    font-weight: 600;
+    color: var(--canvas-fg);
+}
+
+/* -------------------------------------------------------------------------
+   Toolbar Back Button (Data Flow)
+   ------------------------------------------------------------------------- */
+
+.ssis-toolbar__btn--back {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    margin-right: 4px;
+}
+
+.ssis-toolbar__btn--back:hover {
+    background: var(--hover-bg);
+    border-color: var(--input-focus-border);
+}
+
+/* =========================================================================
+   Light theme overrides for data flow components
+   ========================================================================= */
+
+.ssis-theme-light .ssis-df-column-badge {
+    color: #fff;
+}
+
+.ssis-theme-light .ssis-breadcrumb {
+    border-bottom-color: var(--panel-border);
+}
+
+.ssis-theme-light .ssis-breadcrumb__back-btn {
+    color: var(--button-bg, #0e639c);
+}
+
+/* =========================================================================
+   Expression Builder
+   ========================================================================= */
+
+/* -- Overlay / modal ------------------------------------------------------ */
+
+.ssis-expr-builder-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ssis-expr-builder {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    width: 90vw;
+    max-width: 1100px;
+    height: 80vh;
+    max-height: 700px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+}
+
+/* -- Header --------------------------------------------------------------- */
+
+.ssis-expr-builder__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    min-height: 40px;
+}
+
+.ssis-expr-builder__title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--panel-header-fg);
+}
+
+.ssis-expr-builder__header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ssis-expr-builder__btn {
+    padding: 4px 14px;
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    transition: background 0.15s;
+}
+
+.ssis-expr-builder__btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-expr-builder__btn--apply {
+    background: var(--button-bg);
+    color: var(--button-fg);
+    border-color: var(--button-bg);
+}
+
+.ssis-expr-builder__btn--apply:hover {
+    background: var(--button-hover-bg);
+}
+
+.ssis-expr-builder__btn--cancel {
+    background: var(--input-bg);
+}
+
+/* -- Body ----------------------------------------------------------------- */
+
+.ssis-expr-builder__body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* -- Sidebar (functions / variables) -------------------------------------- */
+
+.ssis-expr-builder__sidebar {
+    width: 280px;
+    min-width: 220px;
+    border-right: 1px solid var(--panel-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ssis-expr-builder__tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-expr-builder__tab {
+    flex: 1;
+    padding: 6px 8px;
+    text-align: center;
+    font-size: 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--panel-fg);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.ssis-expr-builder__tab:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-expr-builder__tab--active {
+    border-bottom-color: var(--button-bg);
+    color: var(--active-fg, var(--panel-fg));
+    font-weight: 600;
+}
+
+/* Search input */
+.ssis-expr-builder__search {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--input-bg);
+    border: none;
+    border-bottom: 1px solid var(--panel-border);
+    color: var(--input-fg);
+    font-size: 12px;
+    outline: none;
+}
+
+.ssis-expr-builder__search:focus {
+    border-bottom-color: var(--input-focus-border);
+}
+
+/* Category buttons */
+.ssis-expr-builder__categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 4px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-expr-builder__cat-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--panel-fg);
+    cursor: pointer;
+}
+
+.ssis-expr-builder__cat-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-expr-builder__cat-btn--active {
+    background: var(--active-bg);
+    color: var(--active-fg);
+    border-color: var(--button-bg);
+}
+
+/* Function list */
+.ssis-expr-builder__func-panel,
+.ssis-expr-builder__var-panel {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.ssis-expr-builder__func-list {
+    padding: 2px 0;
+}
+
+.ssis-expr-builder__func-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--panel-border);
+    transition: background 0.1s;
+}
+
+.ssis-expr-builder__func-item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-expr-builder__func-name {
+    font-weight: 600;
+    font-size: 12px;
+    color: #569cd6;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+}
+
+.ssis-expr-builder__func-sig {
+    font-size: 11px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    margin-top: 2px;
+}
+
+.ssis-expr-builder__func-desc {
+    font-size: 11px;
+    color: var(--panel-fg);
+    opacity: 0.6;
+    margin-top: 2px;
+    line-height: 1.3;
+}
+
+/* Variable browser */
+.ssis-expr-builder__var-group {
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-expr-builder__var-group-header {
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+}
+
+.ssis-expr-builder__var-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 20px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.1s;
+}
+
+.ssis-expr-builder__var-item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-expr-builder__var-icon {
+    font-size: 11px;
+    opacity: 0.6;
+    width: 14px;
+    text-align: center;
+}
+
+.ssis-expr-builder__var-name {
+    flex: 1;
+    color: #c586c0;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+}
+
+.ssis-expr-builder__var-type {
+    font-size: 10px;
+    color: var(--panel-fg);
+    opacity: 0.5;
+}
+
+.ssis-expr-builder__empty {
+    padding: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--panel-fg);
+    opacity: 0.6;
+}
+
+/* -- Editor area ---------------------------------------------------------- */
+
+.ssis-expr-builder__editor-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.ssis-expr-builder__editor-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.ssis-expr-builder__editor-label {
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+/* Code editor (layered textarea + highlight) */
+.ssis-expr-builder__code-editor {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    min-height: 120px;
+}
+
+.ssis-expr-builder__highlight-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: 10px 12px;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    pointer-events: none;
+    overflow: hidden;
+    color: transparent;
+    background: transparent;
+}
+
+.ssis-expr-builder__textarea {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 120px;
+    padding: 10px 12px;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    font-size: 13px;
+    line-height: 1.5;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: none;
+    outline: none;
+    resize: none;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    caret-color: var(--input-fg);
+    -webkit-text-fill-color: transparent;
+}
+
+.ssis-expr-builder__textarea:focus {
+    outline: 1px solid var(--input-focus-border);
+}
+
+/* Syntax highlighting token colors */
+.ssis-expr-token-keyword   { color: #569cd6; font-weight: 600; }
+.ssis-expr-token-string    { color: #ce9178; }
+.ssis-expr-token-number    { color: #b5cea8; }
+.ssis-expr-token-variable  { color: #c586c0; }
+.ssis-expr-token-operator  { color: #808080; }
+.ssis-expr-token-cast      { color: #4ec9b0; }
+.ssis-expr-token-paren     { color: #d4d4d4; }
+.ssis-expr-token-bracket   { color: #d4d4d4; }
+.ssis-expr-token-comma     { color: #808080; }
+
+/* -- Autocomplete dropdown ------------------------------------------------ */
+
+.ssis-expr-ac {
+    position: absolute;
+    top: 100%;
+    left: 12px;
+    min-width: 300px;
+    max-width: 450px;
+    max-height: 220px;
+    overflow-y: auto;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+}
+
+.ssis-expr-ac-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.08s;
+}
+
+.ssis-expr-ac-item:hover,
+.ssis-expr-ac-item--active {
+    background: var(--active-bg);
+    color: var(--active-fg);
+}
+
+.ssis-expr-ac-icon {
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.ssis-expr-ac-icon--function {
+    background: #569cd6;
+    color: #fff;
+}
+
+.ssis-expr-ac-icon--variable {
+    background: #c586c0;
+    color: #fff;
+}
+
+.ssis-expr-ac-icon--column {
+    background: #4ec9b0;
+    color: #fff;
+}
+
+.ssis-expr-ac-icon--cast {
+    background: #4ec9b0;
+    color: #fff;
+}
+
+.ssis-expr-ac-label {
+    flex: 1;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ssis-expr-ac-detail {
+    font-size: 11px;
+    opacity: 0.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+}
+
+/* -- Validation preview --------------------------------------------------- */
+
+.ssis-expr-builder__preview {
+    border-top: 1px solid var(--panel-border);
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.ssis-expr-builder__preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+}
+
+.ssis-expr-builder__validation-badge {
+    display: flex;
+    gap: 8px;
+}
+
+.ssis-expr-builder__badge--ok {
+    color: #73c991;
+    font-size: 11px;
+}
+
+.ssis-expr-builder__badge--error {
+    color: var(--error-fg, #f44336);
+    font-size: 11px;
+}
+
+.ssis-expr-builder__badge--warning {
+    color: #cca700;
+    font-size: 11px;
+}
+
+.ssis-expr-builder__preview-body {
+    padding: 6px 12px;
+}
+
+.ssis-expr-builder__preview-ok {
+    color: #73c991;
+    font-size: 12px;
+}
+
+.ssis-expr-builder__preview-vars {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--panel-fg);
+    opacity: 0.7;
+}
+
+.ssis-expr-builder__preview-empty {
+    color: var(--panel-fg);
+    opacity: 0.5;
+    font-size: 12px;
+}
+
+.ssis-expr-builder__error-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 12px;
+}
+
+.ssis-expr-builder__error-item--error .ssis-expr-builder__error-icon {
+    color: var(--error-fg, #f44336);
+}
+
+.ssis-expr-builder__error-item--warning .ssis-expr-builder__error-icon {
+    color: #cca700;
+}
+
+.ssis-expr-builder__error-msg {
+    flex: 1;
+}
+
+.ssis-expr-builder__error-pos {
+    font-size: 11px;
+    opacity: 0.5;
+    white-space: nowrap;
+}
+
+/* -- Operators toolbar ---------------------------------------------------- */
+
+.ssis-expr-builder__operators {
+    border-top: 1px solid var(--panel-border);
+    padding: 4px 8px;
+}
+
+.ssis-expr-builder__operators-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--panel-fg);
+    opacity: 0.6;
+    margin-bottom: 4px;
+}
+
+.ssis-expr-builder__operators-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+}
+
+.ssis-expr-builder__op-btn {
+    padding: 2px 6px;
+    font-size: 12px;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    background: var(--input-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    color: var(--input-fg);
+    cursor: pointer;
+    min-width: 24px;
+    text-align: center;
+    transition: background 0.1s;
+}
+
+.ssis-expr-builder__op-btn:hover {
+    background: var(--hover-bg);
+    border-color: var(--input-focus-border);
+}
+
+/* =========================================================================
+   Column Mapping Editor
+   ========================================================================= */
+
+.ssis-col-map {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--panel-bg);
+    color: var(--panel-fg);
+    overflow: hidden;
+}
+
+/* -- Toolbar -------------------------------------------------------------- */
+
+.ssis-col-map__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--panel-border);
+    background: var(--panel-header-bg);
+}
+
+.ssis-col-map__btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    color: var(--input-fg);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ssis-col-map__btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-col-map__btn--primary {
+    background: var(--button-bg);
+    color: var(--button-fg);
+    border-color: var(--button-bg);
+}
+
+.ssis-col-map__btn--primary:hover {
+    background: var(--button-hover-bg);
+}
+
+.ssis-col-map__btn--add {
+    margin-top: 6px;
+}
+
+.ssis-col-map__spacer {
+    flex: 1;
+}
+
+.ssis-col-map__view-toggle {
+    display: flex;
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.ssis-col-map__view-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    background: var(--input-bg);
+    border: none;
+    color: var(--input-fg);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.ssis-col-map__view-btn:first-child {
+    border-right: 1px solid var(--input-border);
+}
+
+.ssis-col-map__view-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-col-map__view-btn--active {
+    background: var(--active-bg);
+    color: var(--active-fg);
+}
+
+/* -- Visual view ---------------------------------------------------------- */
+
+.ssis-col-map__visual {
+    flex: 1;
+    display: flex;
+    position: relative;
+    overflow: hidden;
+    min-height: 200px;
+}
+
+.ssis-col-map__column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 150px;
+    max-width: 45%;
+}
+
+.ssis-col-map__column-header {
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 12px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+    text-align: center;
+}
+
+.ssis-col-map__column-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.ssis-col-map__item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: grab;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+    transition: background 0.1s;
+    user-select: none;
+}
+
+.ssis-col-map__item:active {
+    cursor: grabbing;
+}
+
+.ssis-col-map__item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-col-map__item--mapped {
+    background: rgba(86, 156, 214, 0.08);
+}
+
+.ssis-col-map__item--unmapped {
+    opacity: 0.7;
+    background: rgba(204, 167, 0, 0.06);
+}
+
+.ssis-col-map__item--dragging {
+    opacity: 0.5;
+}
+
+.ssis-col-map__item--hover-target {
+    background: rgba(86, 156, 214, 0.2);
+    outline: 1px dashed var(--button-bg);
+}
+
+.ssis-col-map__item-name {
+    flex: 1;
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ssis-col-map__item-type {
+    font-size: 10px;
+    opacity: 0.5;
+    white-space: nowrap;
+}
+
+.ssis-col-map__item-remove {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    opacity: 0.4;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+    transition: opacity 0.1s;
+}
+
+.ssis-col-map__item-remove:hover {
+    opacity: 1;
+    color: var(--error-fg);
+}
+
+.ssis-col-map__item-warning {
+    color: #cca700;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+/* SVG mapping lines */
+.ssis-col-map__svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.ssis-col-map__line {
+    fill: none;
+    stroke: var(--button-bg, #0e639c);
+    stroke-width: 2;
+    opacity: 0.6;
+}
+
+.ssis-col-map__line--mismatch {
+    stroke: #cca700;
+    stroke-dasharray: 6 3;
+}
+
+/* -- Table view ----------------------------------------------------------- */
+
+.ssis-col-map__table-container {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+}
+
+.ssis-col-map__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-col-map__table th {
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    background: var(--panel-header-bg);
+    border-bottom: 2px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-col-map__table td {
+    padding: 4px 10px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-col-map__row--even {
+    background: transparent;
+}
+
+.ssis-col-map__row--odd {
+    background: rgba(128, 128, 128, 0.04);
+}
+
+.ssis-col-map__select {
+    width: 100%;
+    padding: 3px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-col-map__type-cell {
+    font-family: var(--vscode-editor-font-family, 'Cascadia Code', 'Consolas', monospace);
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.ssis-col-map__warning-badge {
+    color: #cca700;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.ssis-col-map__remove-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    opacity: 0.4;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    transition: opacity 0.1s;
+}
+
+.ssis-col-map__remove-btn:hover {
+    opacity: 1;
+    color: var(--error-fg);
+}
+
+.ssis-col-map__empty-row {
+    text-align: center;
+    color: var(--panel-fg);
+    opacity: 0.5;
+    padding: 20px !important;
+}
+
+/* -- Summary -------------------------------------------------------------- */
+
+.ssis-col-map__summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    font-size: 11px;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-header-bg);
+    color: var(--panel-fg);
+    opacity: 0.8;
+}
+
+.ssis-col-map__summary-warning {
+    color: #cca700;
+}
+
+.ssis-col-map__summary-unmapped {
+    color: var(--panel-fg);
+    opacity: 0.6;
+}
+
+/* =========================================================================
+   Validation Overlay Styles (Phase 3 Item 4)
+   ========================================================================= */
+
+.ssis-validation-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.ssis-validation-overlay__node {
+    position: absolute;
+    pointer-events: auto;
+}
+
+/* Validation badge */
+.ssis-validation-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 5px;
+    border-radius: 10px;
+    font-size: 11px;
+    cursor: pointer;
+    z-index: 20;
+    user-select: none;
+    transition: transform 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.ssis-validation-badge:hover {
+    transform: scale(1.15);
+}
+
+.ssis-validation-badge--error {
+    background: #d32f2f;
+    color: #fff;
+}
+
+.ssis-validation-badge--warning {
+    background: #f9a825;
+    color: #000;
+}
+
+.ssis-validation-badge--info {
+    background: #0288d1;
+    color: #fff;
+}
+
+.ssis-validation-badge--valid {
+    background: #2e7d32;
+    color: #fff;
+}
+
+.ssis-validation-badge__icon {
+    font-size: 12px;
+    line-height: 1;
+}
+
+.ssis-validation-badge__count {
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 14px;
+    text-align: center;
+}
+
+/* Validation tooltip */
+.ssis-validation-tooltip {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 6px;
+    min-width: 260px;
+    max-width: 400px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    overflow: hidden;
+}
+
+.ssis-validation-tooltip__header {
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-validation-tooltip__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ssis-validation-tooltip__item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--panel-border);
+    transition: background 0.1s;
+}
+
+.ssis-validation-tooltip__item:last-child {
+    border-bottom: none;
+}
+
+.ssis-validation-tooltip__item:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-validation-tooltip__item--error {
+    color: var(--error-fg);
+}
+
+.ssis-validation-tooltip__item--warning {
+    color: #cca700;
+}
+
+.ssis-validation-tooltip__item--info {
+    color: #3794ff;
+}
+
+.ssis-validation-tooltip__icon {
+    flex-shrink: 0;
+    font-size: 12px;
+    line-height: 1.3;
+}
+
+.ssis-validation-tooltip__message {
+    color: var(--panel-fg);
+    word-break: break-word;
+}
+
+/* =========================================================================
+   Environment Editor Styles (Phase 3 Item 5)
+   ========================================================================= */
+
+.ssis-env-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.ssis-env-editor {
+    width: min(900px, 90vw);
+    max-height: 85vh;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ssis-env-editor__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-env-editor__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--panel-header-fg);
+}
+
+.ssis-env-editor__close-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.ssis-env-editor__close-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-env-editor__error {
+    margin: 8px 16px 0;
+    padding: 8px 12px;
+    background: rgba(211, 47, 47, 0.15);
+    border: 1px solid #d32f2f;
+    border-radius: 4px;
+    color: var(--error-fg);
+    font-size: 12px;
+}
+
+.ssis-env-editor__meta {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-env-editor__label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--panel-fg);
+}
+
+.ssis-env-editor__label > span:first-child {
+    min-width: 80px;
+    font-weight: 600;
+}
+
+.ssis-env-editor__value {
+    opacity: 0.8;
+}
+
+.ssis-env-editor__input {
+    flex: 1;
+    padding: 4px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-env-editor__input:focus {
+    border-color: var(--input-focus-border);
+    outline: none;
+}
+
+.ssis-env-editor__table-wrapper {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+}
+
+.ssis-env-editor__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-env-editor__table th {
+    position: sticky;
+    top: 0;
+    padding: 6px 10px;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-env-editor__table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--panel-border);
+    vertical-align: middle;
+}
+
+.ssis-env-editor__row--new {
+    background: rgba(46, 125, 50, 0.1);
+}
+
+.ssis-env-editor__row--modified {
+    background: rgba(249, 168, 37, 0.1);
+}
+
+.ssis-env-editor__cell-input {
+    width: 100%;
+    padding: 3px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-env-editor__cell-input:focus {
+    border-color: var(--input-focus-border);
+    outline: none;
+}
+
+.ssis-env-editor__cell-input--sensitive {
+    letter-spacing: 2px;
+}
+
+.ssis-env-editor__cell-select {
+    width: 100%;
+    padding: 3px 6px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid transparent;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-env-editor__cell-select:focus {
+    border-color: var(--input-focus-border);
+    outline: none;
+}
+
+.ssis-env-editor__cell-center {
+    text-align: center;
+}
+
+.ssis-env-editor__delete-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    opacity: 0.6;
+}
+
+.ssis-env-editor__delete-btn:hover {
+    opacity: 1;
+    background: rgba(211, 47, 47, 0.15);
+}
+
+.ssis-env-editor__empty-row {
+    text-align: center;
+    padding: 20px !important;
+    color: var(--panel-fg);
+    opacity: 0.5;
+}
+
+.ssis-env-editor__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-header-bg);
+}
+
+.ssis-env-editor__footer-right {
+    display: flex;
+    gap: 8px;
+}
+
+.ssis-env-editor__btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ssis-env-editor__btn--add {
+    background: transparent;
+    color: var(--button-bg);
+    border: 1px dashed var(--button-bg);
+}
+
+.ssis-env-editor__btn--add:hover {
+    background: rgba(14, 99, 156, 0.1);
+}
+
+.ssis-env-editor__btn--cancel {
+    background: transparent;
+    color: var(--panel-fg);
+    border: 1px solid var(--panel-border);
+}
+
+.ssis-env-editor__btn--cancel:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-env-editor__btn--save {
+    background: var(--button-bg);
+    color: var(--button-fg);
+}
+
+.ssis-env-editor__btn--save:hover {
+    background: var(--button-hover-bg);
+}
+
+.ssis-env-editor__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* =========================================================================
+   Environment Reference Editor Styles
+   ========================================================================= */
+
+.ssis-envref-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.ssis-envref-editor {
+    width: min(700px, 85vw);
+    max-height: 80vh;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ssis-envref-editor__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-envref-editor__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--panel-header-fg);
+}
+
+.ssis-envref-editor__close-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.ssis-envref-editor__close-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-envref-editor__error {
+    margin: 8px 16px 0;
+    padding: 8px 12px;
+    background: rgba(211, 47, 47, 0.15);
+    border: 1px solid #d32f2f;
+    border-radius: 4px;
+    color: var(--error-fg);
+    font-size: 12px;
+}
+
+.ssis-envref-editor__section {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-envref-editor__section:last-of-type {
+    border-bottom: none;
+}
+
+.ssis-envref-editor__section-title {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--panel-fg);
+}
+
+.ssis-envref-editor__empty {
+    font-size: 12px;
+    color: var(--panel-fg);
+    opacity: 0.5;
+    margin: 4px 0;
+}
+
+.ssis-envref-editor__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-envref-editor__table th {
+    padding: 6px 10px;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-envref-editor__table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-envref-editor__cell-center {
+    text-align: center;
+}
+
+.ssis-envref-editor__remove-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 0.6;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.ssis-envref-editor__remove-btn:hover {
+    opacity: 1;
+    background: rgba(211, 47, 47, 0.15);
+}
+
+.ssis-envref-editor__add-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ssis-envref-editor__select {
+    flex: 1;
+    padding: 5px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-envref-editor__select:focus {
+    border-color: var(--input-focus-border);
+    outline: none;
+}
+
+.ssis-envref-editor__btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.ssis-envref-editor__btn--add {
+    background: var(--button-bg);
+    color: var(--button-fg);
+}
+
+.ssis-envref-editor__btn--add:hover {
+    background: var(--button-hover-bg);
+}
+
+.ssis-envref-editor__btn--add:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ssis-envref-editor__btn--close {
+    background: transparent;
+    color: var(--panel-fg);
+    border: 1px solid var(--panel-border);
+}
+
+.ssis-envref-editor__btn--close:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-envref-editor__footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 16px;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-header-bg);
+}
+
+/* =========================================================================
+   Execution History Styles (Phase 3 Item 6)
+   ========================================================================= */
+
+.ssis-exec-history-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.ssis-exec-history {
+    width: min(1100px, 95vw);
+    max-height: 90vh;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ssis-exec-history__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--panel-header-bg);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-exec-history__title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--panel-header-fg);
+}
+
+.ssis-exec-history__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ssis-exec-history__auto-refresh {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--panel-fg);
+    cursor: pointer;
+}
+
+.ssis-exec-history__refresh-btn,
+.ssis-exec-history__close-btn {
+    background: none;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.ssis-exec-history__refresh-btn:hover,
+.ssis-exec-history__close-btn:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-exec-history__error {
+    margin: 8px 16px 0;
+    padding: 8px 12px;
+    background: rgba(211, 47, 47, 0.15);
+    border: 1px solid #d32f2f;
+    border-radius: 4px;
+    color: var(--error-fg);
+    font-size: 12px;
+}
+
+/* Filters */
+.ssis-exec-history__filters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--panel-border);
+    flex-wrap: wrap;
+}
+
+.ssis-exec-history__filter-select {
+    padding: 4px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    min-width: 140px;
+}
+
+.ssis-exec-history__filter-input {
+    padding: 4px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+    min-width: 180px;
+}
+
+.ssis-exec-history__filter-date {
+    padding: 4px 8px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+    border: 1px solid var(--input-border);
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.ssis-exec-history__filter-sep {
+    color: var(--panel-fg);
+    opacity: 0.5;
+}
+
+.ssis-exec-history__filter-select:focus,
+.ssis-exec-history__filter-input:focus,
+.ssis-exec-history__filter-date:focus {
+    border-color: var(--input-focus-border);
+    outline: none;
+}
+
+/* Table */
+.ssis-exec-history__table-wrapper {
+    flex: 1;
+    overflow: auto;
+}
+
+.ssis-exec-history__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ssis-exec-history__table thead th {
+    position: sticky;
+    top: 0;
+    padding: 7px 10px;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-exec-history__th--sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.ssis-exec-history__th--sortable:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-exec-history__table tbody td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--panel-border);
+    white-space: nowrap;
+}
+
+.ssis-exec-history__row {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+
+.ssis-exec-history__row:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-exec-history__row--expanded {
+    background: var(--active-bg);
+    color: var(--active-fg);
+}
+
+/* Status badges */
+.ssis-exec-history__status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+}
+
+.status--succeeded {
+    color: #4caf50;
+}
+
+.status--failed {
+    color: #f44336;
+}
+
+.status--running {
+    color: #2196f3;
+}
+
+.status--canceled {
+    color: #ff9800;
+}
+
+.status--pending {
+    color: #9e9e9e;
+}
+
+.status--created {
+    color: #78909c;
+}
+
+.ssis-exec-history__loading,
+.ssis-exec-history__empty {
+    text-align: center;
+    padding: 20px !important;
+    color: var(--panel-fg);
+    opacity: 0.5;
+}
+
+/* Detail row (expanded) */
+.ssis-exec-history__detail-row td {
+    padding: 0 !important;
+    background: var(--panel-bg);
+}
+
+.ssis-exec-history__detail {
+    border-top: 1px solid var(--panel-border);
+}
+
+.ssis-exec-history__detail-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-exec-history__detail-tab {
+    padding: 6px 14px;
+    background: transparent;
+    border: none;
+    color: var(--panel-fg);
+    font-size: 11px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+}
+
+.ssis-exec-history__detail-tab:hover {
+    background: var(--hover-bg);
+}
+
+.ssis-exec-history__detail-tab--active {
+    border-bottom-color: var(--button-bg);
+    color: var(--button-bg);
+    font-weight: 600;
+}
+
+.ssis-exec-history__detail-tab--action {
+    margin-left: auto;
+    color: var(--button-bg);
+}
+
+.ssis-exec-history__detail-tab--action:hover {
+    text-decoration: underline;
+}
+
+.ssis-exec-history__detail-empty {
+    text-align: center;
+    padding: 16px;
+    color: var(--panel-fg);
+    opacity: 0.5;
+    font-size: 12px;
+}
+
+/* Messages table */
+.ssis-exec-history__messages {
+    max-height: 300px;
+    overflow: auto;
+}
+
+.ssis-exec-history__messages-table,
+.ssis-exec-history__stats-table,
+.ssis-exec-history__params-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+}
+
+.ssis-exec-history__messages-table th,
+.ssis-exec-history__stats-table th,
+.ssis-exec-history__params-table th {
+    padding: 5px 8px;
+    background: var(--panel-header-bg);
+    color: var(--panel-header-fg);
+    font-weight: 600;
+    text-align: left;
+    border-bottom: 1px solid var(--panel-border);
+    position: sticky;
+    top: 0;
+}
+
+.ssis-exec-history__messages-table td,
+.ssis-exec-history__stats-table td,
+.ssis-exec-history__params-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.ssis-exec-history__msg-time {
+    white-space: nowrap;
+    font-family: monospace;
+    font-size: 10px;
+}
+
+.ssis-exec-history__msg-text {
+    word-break: break-word;
+    white-space: normal;
+    max-width: 500px;
+}
+
+.ssis-exec-history__msg-row--type-120 {
+    color: var(--error-fg);
+}
+
+.ssis-exec-history__msg-row--type-130 {
+    color: #cca700;
+}
+
+.ssis-exec-history__stats {
+    max-height: 300px;
+    overflow: auto;
+}
+
+.ssis-exec-history__params {
+    max-height: 300px;
+    overflow: auto;
+}
+
+.ssis-exec-history__cell-right {
+    text-align: right;
+    font-family: monospace;
+}
+
+/* Pagination */
+.ssis-exec-history__pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-header-bg);
+}
+
+.ssis-exec-history__page-btn {
+    padding: 5px 12px;
+    background: transparent;
+    color: var(--panel-fg);
+    border: 1px solid var(--panel-border);
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.ssis-exec-history__page-btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+}
+
+.ssis-exec-history__page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.ssis-exec-history__page-info {
+    font-size: 12px;
+    color: var(--panel-fg);
+    opacity: 0.8;
+}

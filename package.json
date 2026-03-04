@@ -1,0 +1,334 @@
+{
+  "name": "sharpsql-ssis-designer",
+  "displayName": "SSIS Designer",
+  "description": "Visual SSIS package designer for VS Code",
+  "version": "0.1.0",
+  "publisher": "sharpsql",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCustomEditor:ssisDesigner.dtsxEditor",
+    "onView:ssisDesigner.catalogExplorer",
+    "onView:ssisDesigner.connectionManager"
+  ],
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "ssisDesigner.dtsxEditor",
+        "displayName": "SSIS Package Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.dtsx"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "ssis.newPackage",
+        "title": "SSIS: New Package"
+      },
+      {
+        "command": "ssis.deployProject",
+        "title": "SSIS: Deploy Project",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "ssis.executePackage",
+        "title": "SSIS: Execute Package",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ssis.validatePackage",
+        "title": "SSIS: Validate Package",
+        "icon": "$(check)"
+      },
+      {
+        "command": "ssis.exportIspac",
+        "title": "SSIS: Export ISPAC"
+      },
+      {
+        "command": "ssis.connectCatalog",
+        "title": "SSIS: Connect to SSIS Catalog",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "ssis.refreshCatalog",
+        "title": "SSIS: Refresh Catalog",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ssis.disconnectCatalog",
+        "title": "SSIS: Disconnect Server",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "ssis.downloadPackage",
+        "title": "Download Package",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ssis.createFolder",
+        "title": "Create Folder",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "ssis.editConnection",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "ssis.testConnection",
+        "title": "Test Connection",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "ssis.deleteConnection",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ssis.editEnvironment",
+        "title": "Edit Environment",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "ssis.createEnvironment",
+        "title": "Create Environment",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ssis.deleteEnvironment",
+        "title": "Delete Environment",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ssis.manageEnvironmentRefs",
+        "title": "Manage Environment References",
+        "icon": "$(references)"
+      },
+      {
+        "command": "ssis.viewExecutionHistory",
+        "title": "SSIS: View Execution History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "ssis.viewExecutionDetails",
+        "title": "View Execution Details",
+        "icon": "$(info)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ssisExplorer",
+          "title": "SSIS Explorer",
+          "icon": "media/icons/ssis.svg"
+        }
+      ]
+    },
+    "views": {
+      "ssisExplorer": [
+        {
+          "id": "ssisDesigner.catalogExplorer",
+          "name": "Catalog Explorer"
+        },
+        {
+          "id": "ssisDesigner.connectionManager",
+          "name": "Connection Managers"
+        }
+      ]
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.validatePackage",
+          "group": "navigation@1"
+        },
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.deployProject",
+          "group": "navigation@2"
+        },
+        {
+          "when": "activeCustomEditorId == ssisDesigner.dtsxEditor",
+          "command": "ssis.executePackage",
+          "group": "navigation@3"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ssis.connectCatalog",
+          "when": "view == ssisDesigner.catalogExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ssis.refreshCatalog",
+          "when": "view == ssisDesigner.catalogExplorer",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ssis.executePackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == package",
+          "group": "inline@1"
+        },
+        {
+          "command": "ssis.downloadPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == package",
+          "group": "inline@2"
+        },
+        {
+          "command": "ssis.executePackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == package",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.downloadPackage",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == package",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "ssis.deployProject",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == project",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.createFolder",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == catalog",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.disconnectCatalog",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == server",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.viewExecutionHistory",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == server",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "ssis.manageEnvironmentRefs",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == project",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "ssis.createEnvironment",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == environmentsContainer",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.editEnvironment",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == environment",
+          "group": "inline@1"
+        },
+        {
+          "command": "ssis.deleteEnvironment",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == environment",
+          "group": "inline@2"
+        },
+        {
+          "command": "ssis.editEnvironment",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == environment",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.deleteEnvironment",
+          "when": "view == ssisDesigner.catalogExplorer && viewItem == environment",
+          "group": "2_danger@1"
+        },
+        {
+          "command": "ssis.editConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "inline@1"
+        },
+        {
+          "command": "ssis.testConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "inline@2"
+        },
+        {
+          "command": "ssis.deleteConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "inline@3"
+        },
+        {
+          "command": "ssis.editConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "ssis.testConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "ssis.deleteConnection",
+          "when": "view == ssisDesigner.connectionManager && viewItem == connectionManager",
+          "group": "2_danger@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ssis.executePackage",
+        "key": "f5",
+        "when": "activeCustomEditorId == ssisDesigner.dtsxEditor"
+      },
+      {
+        "command": "ssis.deployProject",
+        "key": "ctrl+shift+d",
+        "mac": "cmd+shift+d",
+        "when": "activeCustomEditorId == ssisDesigner.dtsxEditor"
+      }
+    ],
+    "configuration": {
+      "title": "SSIS Designer",
+      "properties": {
+        "ssisDesigner.validationTrigger": {
+          "type": "string",
+          "default": "onSave",
+          "enum": [
+            "onSave",
+            "onType",
+            "manual"
+          ],
+          "description": "When to run inline validation on .dtsx files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build:webview": "vite build --config webview/vite.config.ts",
+    "test": "vitest",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/mssql": "^9.1.9",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "vitest": "^1.2.0"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.3.4",
+    "mssql": "^10.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reactflow": "^11.10.3",
+    "zustand": "^4.5.0"
+  }
+}
