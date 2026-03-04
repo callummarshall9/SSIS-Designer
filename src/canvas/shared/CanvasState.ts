@@ -185,9 +185,27 @@ let _vscodeApi: VsCodeApi | undefined;
 
 function getVsCodeApi(): VsCodeApi | undefined {
   if (_vscodeApi) { return _vscodeApi; }
+
+  // Reuse the API instance acquired by the webview entrypoint (main.tsx).
+  // VS Code only allows acquiring this API once per webview session.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existing = (globalThis as any)._vscodeApi as VsCodeApi | undefined;
+    if (existing?.postMessage) {
+      _vscodeApi = existing;
+      return _vscodeApi;
+    }
+  } catch {
+    // Ignore and try to acquire below.
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     _vscodeApi = (globalThis as any).acquireVsCodeApi?.();
+    if (_vscodeApi) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (globalThis as any)._vscodeApi = _vscodeApi;
+    }
   } catch {
     // Not inside a webview – ignore (e.g. tests)
   }

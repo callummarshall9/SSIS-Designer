@@ -77,12 +77,42 @@ describe('buildIspac', () => {
     cleanupDir(projectDir);
   });
 
+  it('should include default content types for SSIS extensions', async () => {
+    const buf = await buildIspac(projectDir);
+    const str = buf.toString('utf-8');
+    expect(str).toContain('<Default Extension="dtsx" ContentType="text/xml" />');
+    expect(str).toContain('<Default Extension="params" ContentType="text/xml" />');
+    expect(str).toContain('<Default Extension="manifest" ContentType="text/xml" />');
+    cleanupDir(projectDir);
+  });
+
+  it('should include SSIS project manifest Package entries', async () => {
+    const buf = await buildIspac(projectDir);
+    const str = buf.toString('utf-8');
+      expect(str).toContain('<SSIS:Project xmlns="www.microsoft.com/SqlServer/SSIS" xmlns:SSIS="www.microsoft.com/SqlServer/SSIS" SSIS:ProtectionLevel="EncryptSensitiveWithUserKey">');
+      expect(str).toContain('<SSIS:Property SSIS:Name="PasswordVerifier" SSIS:Sensitive="1">');
+      expect(str).toContain('<SSIS:Packages>');
+      expect(str).toContain('<SSIS:Package SSIS:Name="Package1.dtsx" SSIS:EntryPoint="1"');
+      expect(str).toContain('<SSIS:Package SSIS:Name="Package2.dtsx" SSIS:EntryPoint="1"');
+    expect(str).not.toContain('PackageManifest');
+    cleanupDir(projectDir);
+  });
+
   it('should throw when no .dtsx files exist', async () => {
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ssis-empty-'));
     await expect(buildIspac(emptyDir)).rejects.toThrow('No .dtsx files found');
     cleanupDir(emptyDir);
   });
 });
+    it('should include deployment package metadata section in manifest', async () => {
+      const buf = await buildIspac(projectDir);
+      const str = buf.toString('utf-8');
+      expect(str).toContain('<SSIS:DeploymentInfo>');
+      expect(str).toContain('<SSIS:PackageInfo>');
+      expect(str).toContain('<SSIS:PackageMetaData SSIS:Name="Package1.dtsx">');
+      expect(str).toContain('<SSIS:Property SSIS:Name="PackageFormatVersion">8</SSIS:Property>');
+      cleanupDir(projectDir);
+    });
 
 describe('deploy error handling', () => {
   it('should raise an error if TdsClient.deployProject fails', async () => {

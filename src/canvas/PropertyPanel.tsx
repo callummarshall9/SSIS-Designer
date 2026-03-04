@@ -29,22 +29,22 @@ export const taskPropertySchemas: Record<string, PropertyDefinition[]> = {
   'Microsoft.ExecuteSQLTask': [
     ...generalProperties,
     { key: 'ConnectionName', label: 'Connection', type: 'connection', section: 'Connection', description: 'Connection manager to use' },
-    { key: 'SqlStatementSource', label: 'SQL Statement', type: 'multiline', section: 'SQL', description: 'SQL statement to execute' },
-    { key: 'SqlStatementSourceType', label: 'Source Type', type: 'enum', section: 'SQL', options: [
+    { key: 'SQLTask.SqlStatementSource', label: 'SQL Statement', type: 'multiline', section: 'SQL', description: 'SQL statement to execute' },
+    { key: 'SQLTask.SqlStatementSourceType', label: 'Source Type', type: 'enum', section: 'SQL', options: [
       { label: 'Direct Input', value: 'DirectInput' },
       { label: 'File Connection', value: 'FileConnection' },
       { label: 'Variable', value: 'Variable' },
     ], description: 'Source type for the SQL statement' },
-    { key: 'ResultSetType', label: 'Result Set', type: 'enum', section: 'SQL', options: [
-      { label: 'None', value: 'None' },
-      { label: 'Single Row', value: 'SingleRow' },
-      { label: 'Full Result Set', value: 'FullResultSet' },
-      { label: 'XML', value: 'XML' },
+    { key: 'SQLTask.ResultSetType', label: 'Result Set', type: 'enum', section: 'SQL', options: [
+      { label: 'None', value: 'ResultSetType_None' },
+      { label: 'Single Row', value: 'ResultSetType_SingleRow' },
+      { label: 'Full Result Set', value: 'ResultSetType_Rowset' },
+      { label: 'XML', value: 'ResultSetType_XML' },
     ], description: 'Result set type' },
-    { key: 'IsStoredProcedure', label: 'Is Stored Procedure', type: 'boolean', section: 'SQL', description: 'Whether the statement is a stored procedure' },
-    { key: 'TimeOut', label: 'Timeout (seconds)', type: 'number', section: 'SQL', description: 'Command timeout in seconds' },
-    { key: 'CodePage', label: 'Code Page', type: 'number', section: 'SQL', description: 'Code page for character data' },
-    { key: 'BypassPrepare', label: 'Bypass Prepare', type: 'boolean', section: 'SQL', description: 'Bypass the prepare step' },
+    { key: 'SQLTask.IsStoredProcedure', label: 'Is Stored Procedure', type: 'boolean', section: 'SQL', description: 'Whether the statement is a stored procedure' },
+    { key: 'SQLTask.TimeOut', label: 'Timeout (seconds)', type: 'number', section: 'SQL', description: 'Command timeout in seconds' },
+    { key: 'SQLTask.CodePage', label: 'Code Page', type: 'number', section: 'SQL', description: 'Code page for character data' },
+    { key: 'SQLTask.BypassPrepare', label: 'Bypass Prepare', type: 'boolean', section: 'SQL', description: 'Bypass the prepare step' },
   ],
 
   'Microsoft.Pipeline': [
@@ -358,6 +358,15 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ collapsed = false, onTogg
       // objectName and description are top-level on SsisExecutable
       if (key === 'objectName' || key === 'description') {
         updateNodeData(selectedNode.id, { [key]: value } as Partial<SsisExecutable>);
+      } else if (key === 'ConnectionName') {
+        // ConnectionName maps to connectionRefs for the serializer
+        const refs = value
+          ? [{ connectionManagerId: String(value), connectionManagerName: '' }]
+          : [];
+        updateNodeData(selectedNode.id, {
+          connectionRefs: refs,
+          properties: { ...selectedNode.data.properties, ConnectionName: String(value) },
+        } as Partial<SsisExecutable>);
       } else {
         // Other properties go into the properties bag
         updateNodeData(selectedNode.id, {
@@ -481,6 +490,9 @@ const PropertyPanel: React.FC<PropertyPanelProps> = ({ collapsed = false, onTogg
                     ? selectedNode.data.objectName
                     : def.key === 'description'
                     ? selectedNode.data.description
+                    : def.key === 'ConnectionName'
+                    ? (selectedNode.data.connectionRefs?.[0]?.connectionManagerId
+                        ?? selectedNode.data.properties?.[def.key])
                     : selectedNode.data.properties?.[def.key];
                 return (
                   <div key={def.key} className="ssis-prop-row">

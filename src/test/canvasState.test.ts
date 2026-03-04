@@ -2,7 +2,7 @@
  * Tests for CanvasState Zustand store – node/edge CRUD and undo/redo.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCanvasStore, CanvasState } from '../canvas/shared/CanvasState';
 import { Node, Edge } from 'reactflow';
 import { SsisExecutable, PrecedenceConstraint } from '../models/SsisPackageModel';
@@ -230,5 +230,23 @@ describe('CanvasState – setCanvas', () => {
     expect(state.past).toHaveLength(0);
     expect(state.future).toHaveLength(0);
     expect(state.dirty).toBe(false);
+  });
+});
+
+describe('CanvasState – extension sync', () => {
+  it('should post canvasStateChanged using global _vscodeApi', () => {
+    const postMessage = vi.fn();
+    (globalThis as any)._vscodeApi = {
+      postMessage,
+      getState: () => undefined,
+      setState: () => undefined,
+    };
+
+    useCanvasStore.getState().syncToExtension();
+
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'canvasStateChanged' })
+    );
   });
 });

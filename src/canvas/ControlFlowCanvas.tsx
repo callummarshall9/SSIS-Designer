@@ -66,6 +66,19 @@ function buildDefaultName(executableType: string): string {
   return map[executableType] ?? 'Task';
 }
 
+function buildDefaultProperties(executableType: string): Record<string, string> {
+  if (executableType === 'Microsoft.ExecuteSQLTask') {
+    return {
+      'SQLTask.SqlStatementSource': '',
+      'SQLTask.SqlStatementSourceType': 'DirectInput',
+      'SQLTask.ResultSetType': 'ResultSetType_None',
+      'SQLTask.BypassPrepare': 'false',
+      'SQLTask.TimeOut': '0',
+    };
+  }
+  return {};
+}
+
 // ---------------------------------------------------------------------------
 // Context menu
 // ---------------------------------------------------------------------------
@@ -103,17 +116,29 @@ const ControlFlowCanvasInner: React.FC = () => {
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Apply changes via React Flow helper, then sync position updates
-      const updated = applyNodeChanges(changes, nodes);
-      useCanvasStore.setState({ nodes: updated });
+      const removedIds = changes
+        .filter((c): c is NodeChange & { type: 'remove'; id: string } => c.type === 'remove')
+        .map(c => c.id);
 
-      for (const change of changes) {
+      // Route removals through store actions so dirty/sync are applied.
+      for (const id of removedIds) {
+        removeNode(id);
+      }
+
+      const nonRemoveChanges = changes.filter(c => c.type !== 'remove');
+      if (nonRemoveChanges.length > 0) {
+        const currentNodes = useCanvasStore.getState().nodes;
+        const updated = applyNodeChanges(nonRemoveChanges, currentNodes);
+        useCanvasStore.setState({ nodes: updated });
+      }
+
+      for (const change of nonRemoveChanges) {
         if (change.type === 'position' && change.position && change.dragging === false) {
           moveNode(change.id, change.position.x, change.position.y);
         }
       }
     },
-    [nodes, moveNode]
+    [moveNode, removeNode]
   );
 
   // -----------------------------------------------------------------------
@@ -173,10 +198,23 @@ const ControlFlowCanvasInner: React.FC = () => {
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      const updated = applyEdgeChanges(changes, edges);
-      useCanvasStore.setState({ edges: updated });
+      const removedIds = changes
+        .filter((c): c is EdgeChange & { type: 'remove'; id: string } => c.type === 'remove')
+        .map(c => c.id);
+
+      // Route removals through store actions so dirty/sync are applied.
+      for (const id of removedIds) {
+        removeEdge(id);
+      }
+
+      const nonRemoveChanges = changes.filter(c => c.type !== 'remove');
+      if (nonRemoveChanges.length > 0) {
+        const currentEdges = useCanvasStore.getState().edges;
+        const updated = applyEdgeChanges(nonRemoveChanges, currentEdges);
+        useCanvasStore.setState({ edges: updated });
+      }
     },
-    [edges]
+    [removeEdge]
   );
 
   // -----------------------------------------------------------------------
@@ -256,7 +294,7 @@ const ControlFlowCanvasInner: React.FC = () => {
         y: nodePosition.y,
         width,
         height,
-        properties: {},
+        properties: buildDefaultProperties(executableType),
         connectionRefs: [],
         variables: [],
         unknownElements: [],

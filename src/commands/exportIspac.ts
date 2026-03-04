@@ -1,17 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as zlib from 'zlib';
+import { XMLParser } from 'fast-xml-parser';
 
 // ---------------------------------------------------------------------------
 // Minimal ZIP builder using Node.js buffers (no external dependency needed)
 // ---------------------------------------------------------------------------
 
-interface ZipEntry {
+export interface ZipEntry {
   name: string;
   data: Buffer;
 }
 
-function buildZipBuffer(entries: ZipEntry[]): Buffer {
+export function buildZipBuffer(entries: ZipEntry[]): Buffer {
   const localHeaders: Buffer[] = [];
   const centralHeaders: Buffer[] = [];
   let offset = 0;
@@ -21,9 +23,9 @@ function buildZipBuffer(entries: ZipEntry[]): Buffer {
     const crc = crc32(entry.data);
     const uncompressed = entry.data;
 
-    // We store without compression (method 0) for simplicity & reliability
-    const compressedData = uncompressed;
-    const method = 0;
+    // Use deflate compression (method 8) to match SSIS/Visual Studio ISPACs
+    const compressedData = zlib.deflateRawSync(uncompressed, { level: zlib.constants.Z_DEFAULT_COMPRESSION });
+    const method = 8;
 
     // Local file header (30 + name length)
     const local = Buffer.alloc(30 + nameBuffer.length);
@@ -112,52 +114,208 @@ function crc32(buf: Buffer): number {
 // ISPAC content templates
 // ---------------------------------------------------------------------------
 
-function buildContentTypesXml(): string {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="dtsx" ContentType="text/xml" />
-  <Default Extension="params" ContentType="text/xml" />
-  <Default Extension="manifest" ContentType="text/xml" />
-</Types>`;
+export function buildContentTypesXml(): string {
+  // Match Visual Studio format: UTF-8 BOM + single line, no whitespace
+  return '\uFEFF<?xml version="1.0" encoding="utf-8"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="dtsx" ContentType="text/xml" />' +
+    '<Default Extension="params" ContentType="text/xml" />' +
+    '<Default Extension="manifest" ContentType="text/xml" />' +
+    '</Types>';
 }
 
-function buildProjectManifest(
+export function buildProjectManifest(
   projectName: string,
   packages: string[],
+  packageMetadata: PackageManifestMetadata[],
   connectionManagers: string[],
+  projectProtectionLevel: string,
+  passwordVerifier?: string,
 ): string {
+  const projectId = newGuidBracedLower();
+  const nowIso = new Date().toISOString();
+  const hostName = process.env.COMPUTERNAME || process.env.HOSTNAME || 'UnknownHost';
+
   const pkgEntries = packages
-    .map((p) => `    <SSIS:PackageManifest SSIS:Name="${p}" />`)
+    .map((p) => `    <SSIS:Package SSIS:Name="${xmlEscape(p)}" SSIS:EntryPoint="1" />`)
     .join('\n');
   const cmEntries = connectionManagers
-    .map((c) => `    <SSIS:ConnectionManagerManifest SSIS:Name="${c}" />`)
+    .map((c) => `    <SSIS:ConnectionManager SSIS:Name="${xmlEscape(c)}" />`)
     .join('\n');
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<SSIS:Project xmlns:SSIS="www.microsoft.com/SqlServer/SSIS"
-  SSIS:ProtectionLevel="DontSaveSensitive">
+  const packageInfoEntries = packageMetadata
+    .map((meta) => `      <SSIS:PackageMetaData SSIS:Name="${xmlEscape(meta.fileName)}">
+        <SSIS:Properties>
+          <SSIS:Property SSIS:Name="ID">${xmlEscape(meta.id)}</SSIS:Property>
+          <SSIS:Property SSIS:Name="Name">${xmlEscape(meta.name)}</SSIS:Property>
+          <SSIS:Property SSIS:Name="VersionMajor">${meta.versionMajor}</SSIS:Property>
+          <SSIS:Property SSIS:Name="VersionMinor">${meta.versionMinor}</SSIS:Property>
+          <SSIS:Property SSIS:Name="VersionBuild">${meta.versionBuild}</SSIS:Property>
+          <SSIS:Property SSIS:Name="VersionComments"></SSIS:Property>
+          <SSIS:Property SSIS:Name="VersionGUID">${xmlEscape(meta.versionGuid)}</SSIS:Property>
+          <SSIS:Property SSIS:Name="PackageFormatVersion">${meta.packageFormatVersion}</SSIS:Property>
+          <SSIS:Property SSIS:Name="Description">${xmlEscape(meta.description)}</SSIS:Property>
+          <SSIS:Property SSIS:Name="ProtectionLevel">${meta.protectionLevel}</SSIS:Property>
+        </SSIS:Properties>
+        <SSIS:Parameters />
+      </SSIS:PackageMetaData>`)
+    .join('\n');
+
+  // Build manifest without XML declaration (matches Visual Studio format).
+  // Normalize to \r\n line endings to match reference ISPACs.
+  const raw = `<SSIS:Project SSIS:ProtectionLevel="${xmlEscape(projectProtectionLevel)}" xmlns:SSIS="www.microsoft.com/SqlServer/SSIS">
   <SSIS:Properties>
-    <SSIS:Property SSIS:Name="ID">{00000000-0000-0000-0000-000000000000}</SSIS:Property>
-    <SSIS:Property SSIS:Name="Name">${projectName}</SSIS:Property>
+    <SSIS:Property SSIS:Name="ID">${projectId}</SSIS:Property>
+    <SSIS:Property SSIS:Name="Name">${xmlEscape(projectName)}</SSIS:Property>
     <SSIS:Property SSIS:Name="VersionMajor">1</SSIS:Property>
     <SSIS:Property SSIS:Name="VersionMinor">0</SSIS:Property>
+    <SSIS:Property SSIS:Name="VersionBuild">0</SSIS:Property>
+    <SSIS:Property SSIS:Name="VersionComments"></SSIS:Property>
+    <SSIS:Property SSIS:Name="CreationDate">${nowIso}</SSIS:Property>
+    <SSIS:Property SSIS:Name="CreatorName">${xmlEscape(hostName)}\\${xmlEscape(process.env.USER || process.env.USERNAME || 'UnknownUser')}</SSIS:Property>
+    <SSIS:Property SSIS:Name="CreatorComputerName">${xmlEscape(hostName)}</SSIS:Property>
     <SSIS:Property SSIS:Name="Description"></SSIS:Property>
+    <SSIS:Property SSIS:Name="TargetServerVersion">160</SSIS:Property>
+${passwordVerifier !== undefined ? `    <SSIS:Property SSIS:Name="PasswordVerifier" SSIS:Sensitive="1">${xmlEscape(passwordVerifier)}</SSIS:Property>\n` : ''}    <SSIS:Property SSIS:Name="FormatVersion">1</SSIS:Property>
   </SSIS:Properties>
   <SSIS:Packages>
 ${pkgEntries}
   </SSIS:Packages>
-  <SSIS:ConnectionManagers>
-${cmEntries}
-  </SSIS:ConnectionManagers>
+  <SSIS:ConnectionManagers${cmEntries ? `>\n${cmEntries}\n  </SSIS:ConnectionManagers>` : ' />'}
   <SSIS:DeploymentInfo>
     <SSIS:ProjectConnectionParameters />
+    <SSIS:PackageInfo>
+${packageInfoEntries}
+    </SSIS:PackageInfo>
   </SSIS:DeploymentInfo>
 </SSIS:Project>`;
+
+  return raw.replace(/\r?\n/g, '\r\n');
 }
 
-function buildProjectParams(): string {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<SSIS:Parameters xmlns:SSIS="www.microsoft.com/SqlServer/SSIS" />`;
+export function buildProjectParams(): string {
+  return `<?xml version="1.0"?>\r\n<SSIS:Parameters xmlns:SSIS="www.microsoft.com/SqlServer/SSIS" />`;
+}
+
+export interface PackageManifestMetadata {
+  fileName: string;
+  id: string;
+  name: string;
+  versionMajor: number;
+  versionMinor: number;
+  versionBuild: number;
+  versionGuid: string;
+  packageFormatVersion: number;
+  description: string;
+  protectionLevel: number;
+}
+
+function protectionLevelName(level: number): string {
+  switch (level) {
+    case 0: return 'DontSaveSensitive';
+    case 1: return 'EncryptSensitiveWithUserKey';
+    case 2: return 'EncryptSensitiveWithPassword';
+    case 3: return 'EncryptAllWithPassword';
+    case 4: return 'EncryptAllWithUserKey';
+    case 5: return 'ServerStorage';
+    default: return 'DontSaveSensitive';
+  }
+}
+
+function generatePasswordVerifier(): string {
+  return Buffer.from(newGuidBracedLower(), 'utf-8').toString('base64');
+}
+
+function newGuidBracedLower(): string {
+  try {
+    const g = (globalThis as any).crypto;
+    if (g && typeof g.randomUUID === 'function') {
+      return `{${(g.randomUUID() as string).toLowerCase()}}`;
+    }
+  } catch { /* ignore */ }
+  const hex = '0123456789abcdef';
+  const seg = (n: number) => Array.from({ length: n }, () => hex[Math.floor(Math.random() * 16)]).join('');
+  return `{${seg(8)}-${seg(4)}-4${seg(3)}-${hex[8 + Math.floor(Math.random() * 4)]}${seg(3)}-${seg(12)}}`;
+}
+
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function getAttr(node: any, name: string): string {
+  if (!node) { return ''; }
+  return String(node[`@_DTS:${name}`] ?? node[`@_${name}`] ?? '');
+}
+
+function getPackageFormatVersion(root: any): number {
+  const props = root?.['DTS:Property'];
+  const arr = Array.isArray(props) ? props : (props ? [props] : []);
+  for (const p of arr) {
+    const name = getAttr(p, 'Name');
+    if (name === 'PackageFormatVersion') {
+      const raw = typeof p === 'object' ? (p['#text'] ?? '') : p;
+      const val = Number(raw);
+      return Number.isFinite(val) ? val : 8;
+    }
+  }
+  return 8;
+}
+
+export function parsePackageManifestMetadata(fileName: string, xmlBuffer: Buffer): PackageManifestMetadata {
+  try {
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      parseTagValue: false,
+      removeNSPrefix: false,
+      trimValues: false,
+      isArray: (tagName: string) => tagName === 'DTS:Property',
+    } as any);
+    const parsed = parser.parse(xmlBuffer.toString('utf-8'));
+    const rawRoot = parsed?.['DTS:Executable'] ?? parsed?.['Executable'] ?? parsed;
+    const root = Array.isArray(rawRoot) ? rawRoot[0] : rawRoot;
+
+    const id = getAttr(root, 'DTSID') || newGuidBracedLower();
+    const name = getAttr(root, 'ObjectName') || path.basename(fileName, path.extname(fileName));
+    const versionMajor = Number(getAttr(root, 'VersionMajor') || 1) || 1;
+    const versionMinor = Number(getAttr(root, 'VersionMinor') || 0) || 0;
+    const versionBuild = Number(getAttr(root, 'VersionBuild') || 0) || 0;
+    const versionGuid = getAttr(root, 'VersionGUID') || newGuidBracedLower();
+    const packageFormatVersion = getPackageFormatVersion(root);
+    const description = getAttr(root, 'Description') || '';
+    const protectionLevel = Number(getAttr(root, 'ProtectionLevel') || 1) || 1;
+
+    return {
+      fileName,
+      id,
+      name,
+      versionMajor,
+      versionMinor,
+      versionBuild,
+      versionGuid,
+      packageFormatVersion,
+      description,
+      protectionLevel,
+    };
+  } catch {
+    return {
+      fileName,
+      id: newGuidBracedLower(),
+      name: path.basename(fileName, path.extname(fileName)),
+      versionMajor: 1,
+      versionMinor: 0,
+      versionBuild: 0,
+      versionGuid: newGuidBracedLower(),
+      packageFormatVersion: 8,
+      description: '',
+      protectionLevel: 1,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -179,23 +337,54 @@ export async function buildIspac(projectFolderPath: string): Promise<Buffer> {
 
   const entries: ZipEntry[] = [];
 
-  // [Content_Types].xml
-  entries.push({ name: '[Content_Types].xml', data: Buffer.from(buildContentTypesXml(), 'utf-8') });
+  const packageContents: { name: string; content: Buffer; metadata: PackageManifestMetadata }[] = [];
+  for (const dtsx of dtsxFiles) {
+    const content = fs.readFileSync(path.join(projectFolderPath, dtsx));
+    packageContents.push({
+      name: dtsx,
+      content,
+      metadata: parsePackageManifestMetadata(dtsx, content),
+    });
+  }
 
-  // @Project.manifest
-  entries.push({
-    name: '@Project.manifest',
-    data: Buffer.from(buildProjectManifest(projectName, dtsxFiles, []), 'utf-8'),
-  });
+  // .dtsx packages first (matches Visual Studio ISPAC entry ordering)
+  for (const pkg of packageContents) {
+    entries.push({ name: pkg.name, data: pkg.content });
+  }
+
+  const strongestProtectionLevel = packageContents.reduce(
+    (max, pkg) => Math.max(max, pkg.metadata.protectionLevel),
+    0,
+  );
+  const projectProtectionLevel = protectionLevelName(strongestProtectionLevel);
+  const projectPasswordVerifier = projectProtectionLevel === 'EncryptSensitiveWithUserKey'
+    ? generatePasswordVerifier()
+    : undefined;
 
   // Project.params
   entries.push({ name: 'Project.params', data: Buffer.from(buildProjectParams(), 'utf-8') });
 
-  // .dtsx packages
-  for (const dtsx of dtsxFiles) {
-    const content = fs.readFileSync(path.join(projectFolderPath, dtsx));
-    entries.push({ name: dtsx, data: content });
-  }
+  // @Project.manifest
+  entries.push({
+    name: '@Project.manifest',
+    data: Buffer.from(
+      buildProjectManifest(
+        projectName,
+        packageContents.map(p => p.name),
+        packageContents.map(p => p.metadata),
+        [],
+        projectProtectionLevel,
+        projectPasswordVerifier,
+      ),
+      'utf-8',
+    ),
+  });
+
+  // [Content_Types].xml last
+  entries.push({
+    name: '[Content_Types].xml',
+    data: Buffer.from(buildContentTypesXml(), 'utf-8'),
+  });
 
   return buildZipBuffer(entries);
 }

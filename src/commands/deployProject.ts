@@ -97,7 +97,8 @@ export async function deployProject(
       if (!folderName) { return; }
       await client.createCatalogFolder(folderName);
     }
-  } catch {
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Failed to list folders: ${err.message ?? err}`);
     folderName = await vscode.window.showInputBox({ prompt: 'SSISDB folder name' });
     if (!folderName) { return; }
   }
@@ -130,7 +131,7 @@ export async function deployProject(
           `Successfully deployed "${projectName}" to folder "${folderName}".`,
         );
       } catch (err: any) {
-        vscode.window.showErrorMessage(`Deploy failed: ${err.message ?? err}`);
+        vscode.window.showErrorMessage(`Deploy failed: ${err?.message ?? String(err)}`);
       }
     },
   );

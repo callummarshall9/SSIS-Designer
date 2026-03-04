@@ -157,6 +157,11 @@ const KNOWN_EXECUTABLE_CHILDREN = new Set([
   'DTS:EventHandlers', 'DTS:DesignTimeProperties',
 ]);
 
+const SQLTASK_NAMESPACE = 'www.microsoft.com/sqlserver/dts/tasks/sqltask';
+const DEFAULT_LAST_MODIFIED_PRODUCT_VERSION = '16.0.0.0';
+const DEFAULT_LOCALE_ID = '1033';
+const DEFAULT_VERSION_BUILD = '0';
+
 // ---------------------------------------------------------------------------
 // DtsxSerializer class
 // ---------------------------------------------------------------------------
@@ -164,10 +169,25 @@ const KNOWN_EXECUTABLE_CHILDREN = new Set([
 export class DtsxSerializer {
   private parser: XMLParser;
   private builder: XMLBuilder;
+  /** Temporarily set during serialization so child methods can resolve connection GUIDs. */
+  private _connectionManagers: ConnectionManager[] = [];
 
   constructor() {
     this.parser = new XMLParser(PARSER_OPTIONS as any);
     this.builder = new XMLBuilder(BUILDER_OPTIONS as any);
+  }
+
+  /**
+   * Resolve a connection reference to its DTSID.
+   * If the value is already a GUID (wrapped in braces), return it unchanged.
+   * Otherwise look up the CM by objectName and return its DTSID.
+   */
+  private resolveConnectionDtsId(idOrName: string): string {
+    if (idOrName.startsWith('{') && idOrName.endsWith('}')) {
+      return idOrName;
+    }
+    const cm = this._connectionManagers.find(c => c.objectName === idOrName);
+    return cm?.dtsId || idOrName;
   }
 
   // =========================================================================
@@ -179,7 +199,11 @@ export class DtsxSerializer {
    */
   parse(xml: string): SsisPackageModel {
     const doc = this.parser.parse(xml);
-    const root = doc['DTS:Executable'] ?? doc['Executable'] ?? doc;
+    // The isArray callback forces DTS:Executable to always be an array (since
+    // tasks inside DTS:Executables use the same tag). At the document root
+    // level, there is exactly one package element, so unwrap the array.
+    const rawRoot = doc['DTS:Executable'] ?? doc['Executable'] ?? doc;
+    const root = Array.isArray(rawRoot) ? rawRoot[0] : rawRoot;
 
     // --- Package-level attributes -----------------------------------------
     const packageName = attr(root, 'ObjectName');
@@ -264,7 +288,10 @@ export class DtsxSerializer {
     const props: Record<string, string> = {};
     const objectData = cm['DTS:ObjectData'];
     if (objectData) {
-      const inner = objectData['DTS:ConnectionManager'];
+      // The isArray callback forces DTS:ConnectionManager to always be an array,
+      // even for the inner CM node inside ObjectData — unwrap it.
+      const innerRaw = objectData['DTS:ConnectionManager'];
+      const inner = Array.isArray(innerRaw) ? innerRaw[0] : innerRaw;
       if (inner) {
         const innerProps = asArray(inner['DTS:Property']);
         for (const p of innerProps) {
@@ -285,6 +312,10 @@ export class DtsxSerializer {
               props[attrName] = String(inner[key]);
             }
           }
+        }
+        // Q1-style: ConnectionString may be an attribute on the inner CM, not a DTS:Property child
+        if (!connectionString && props['ConnectionString']) {
+          connectionString = props['ConnectionString'];
         }
       }
     }
@@ -409,6 +440,12 @@ export class DtsxSerializer {
 
     // Task properties from DTS:Property nodes
     const properties = this.parseProperties(e);
+
+    // ForLoop / ForEachLoop attributes stored as XML attributes on the executable
+    for (const attrName of ['InitExpression', 'EvalExpression', 'AssignExpression']) {
+      const v = attr(e, attrName);
+      if (v) { properties[attrName] = v; }
+    }
 
     // Variables scoped to this executable
     const variables = this.parseVariables(e);
@@ -554,18 +591,32 @@ export class DtsxSerializer {
   }
 
   /**
-   * Parse base64-encoded design-time properties XML into a map of
-   * object name → { x, y, width?, height? }.
+   * Parse design-time properties XML (may be base64-encoded or raw XML inside CDATA)
+   * into a map of object name → { x, y, width?, height? }.
    */
-  parseDesignTimeProperties(base64: string): Map<string, { x: number; y: number; width?: number; height?: number }> | null {
+  parseDesignTimeProperties(content: string): Map<string, { x: number; y: number; width?: number; height?: number }> | null {
     try {
-      const decoded = Buffer.from(base64.trim(), 'base64').toString('utf-8');
+      const trimmed = content.trim();
+      if (!trimmed || trimmed.length === 0) { return null; }
+
+      // Detect whether this is raw XML (CDATA content) or base64-encoded.
+      // Raw XML starts with <?xml or < after trimming.
+      let decoded: string;
+      if (trimmed.startsWith('<?xml') || trimmed.startsWith('<')) {
+        decoded = trimmed;
+      } else {
+        decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
+      }
       if (!decoded || decoded.trim().length === 0) { return null; }
 
       const dtpParser = new XMLParser({
         ignoreAttributes: false,
         attributeNamePrefix: '@_',
         parseTagValue: false,
+        isArray: (tagName: string) => {
+          // NodeLayout and EdgeLayout can appear multiple times
+          return tagName === 'NodeLayout' || tagName === 'EdgeLayout';
+        },
       } as any);
 
       const dtpDoc = dtpParser.parse(decoded);
@@ -610,6 +661,35 @@ export class DtsxSerializer {
     result: Map<string, { x: number; y: number; width?: number; height?: number }>
   ): void {
     if (!node || typeof node !== 'object') { return; }
+
+    // --- SSIS 2019+ GraphLayout format: NodeLayout with Id, TopLeft, Size ---
+    // <NodeLayout Size="150.4,41.6" Id="Package\Data Flow Task" TopLeft="299.28,71.11" />
+    if (tagName === 'NodeLayout' && node['@_Id'] && node['@_TopLeft']) {
+      const id = String(node['@_Id']);
+      // Extract the task name from the Id path (e.g. "Package\Data Flow Task" → "Data Flow Task")
+      const nameParts = id.split('\\');
+      const name = nameParts[nameParts.length - 1];
+
+      const topLeftStr = String(node['@_TopLeft']);
+      const topLeftParts = topLeftStr.split(',');
+      const x = parseFloat(topLeftParts[0]);
+      const y = parseFloat(topLeftParts[1]);
+
+      let width: number | undefined;
+      let height: number | undefined;
+      if (node['@_Size']) {
+        const sizeParts = String(node['@_Size']).split(',');
+        width = parseFloat(sizeParts[0]);
+        height = parseFloat(sizeParts[1]);
+      }
+
+      if (Number.isFinite(x) && Number.isFinite(y)) {
+        result.set(name, { x, y, width, height });
+      }
+      return;
+    }
+
+    // --- Legacy format: X/Y/Left/Top attributes or child elements ---
     // Look for @_Name or try tag name, and X/Y attributes or child elements
     const name = node['@_Name'] || node['@_ObjectName'] || tagName;
 
@@ -848,10 +928,15 @@ export class DtsxSerializer {
    *   If omitted, builds the XML from scratch ("new" mode).
    */
   serialize(model: SsisPackageModel, originalXml?: string): string {
-    if (originalXml) {
-      return this.serializeMerge(model, originalXml);
+    this._connectionManagers = model.connectionManagers;
+    try {
+      if (originalXml) {
+        return this.serializeMerge(model, originalXml);
+      }
+      return this.serializeNew(model);
+    } finally {
+      this._connectionManagers = [];
     }
-    return this.serializeNew(model);
   }
 
   // ---- "New" mode ---------------------------------------------------------
@@ -860,7 +945,7 @@ export class DtsxSerializer {
     const xmlObj = this.buildPackageObject(model);
     const xmlDecl = '<?xml version="1.0"?>\n';
     const body = this.builder.build(xmlObj);
-    return xmlDecl + body;
+    return this.normalizeXmlWhitespace(xmlDecl + body);
   }
 
   private buildPackageObject(model: SsisPackageModel): any {
@@ -868,14 +953,22 @@ export class DtsxSerializer {
       '@_xmlns:DTS': 'www.microsoft.com/SqlServer/Dts',
       '@_DTS:refId': 'Package',
       '@_DTS:CreationDate': model.creationDate || new Date().toLocaleDateString('en-US'),
+      '@_DTS:LocaleID': DEFAULT_LOCALE_ID,
+      '@_DTS:VersionBuild': DEFAULT_VERSION_BUILD,
+      '@_DTS:LastModifiedProductVersion': DEFAULT_LAST_MODIFIED_PRODUCT_VERSION,
       '@_DTS:CreatorName': model.creatorName || '',
       '@_DTS:DTSID': model.packageId || newGuid(),
+      '@_DTS:VersionGUID': newGuid(),
       '@_DTS:ExecutableType': 'Microsoft.Package',
-      '@_DTS:ObjectName': model.packageName,
+      '@_DTS:ObjectName': model.packageName || 'Package',
     };
 
     if (model.description) {
       pkg['@_DTS:Description'] = model.description;
+    }
+
+    if (this.hasExecutableType(model.executables, 'Microsoft.ExecuteSQLTask')) {
+      pkg['@_xmlns:SQLTask'] = SQLTASK_NAMESPACE;
     }
 
     // Properties
@@ -963,20 +1056,19 @@ export class DtsxSerializer {
       node['@_DTS:Description'] = cm.description;
     }
 
-    // ObjectData with inner ConnectionManager
-    const innerProps: any[] = [];
+    // ObjectData with inner ConnectionManager — store values as attributes
+    // on the inner node to match the Visual Studio .dtsx format.
+    const innerCM: any = {};
     if (cm.connectionString) {
-      innerProps.push(this.buildPropertyNode('ConnectionString', cm.connectionString));
+      innerCM['@_DTS:ConnectionString'] = cm.connectionString;
     }
     for (const [name, value] of Object.entries(cm.properties)) {
       if (name === 'ConnectionString') { continue; }
-      innerProps.push(this.buildPropertyNode(name, value));
+      innerCM[`@_DTS:${name}`] = value;
     }
 
     node['DTS:ObjectData'] = {
-      'DTS:ConnectionManager': {
-        'DTS:Property': innerProps.length > 0 ? innerProps : undefined,
-      },
+      'DTS:ConnectionManager': innerCM,
     };
 
     return node;
@@ -1040,8 +1132,10 @@ export class DtsxSerializer {
 
   private buildExecutableNode(exec: SsisExecutable, parentRef: string): any {
     const refId = `${parentRef}\\${exec.objectName}`;
+    const isSqlTask = exec.executableType === 'Microsoft.ExecuteSQLTask';
     const node: any = {
       '@_DTS:refId': refId,
+      '@_DTS:CreationName': exec.executableType,
       '@_DTS:DTSID': exec.dtsId || newGuid(),
       '@_DTS:ExecutableType': exec.executableType,
       '@_DTS:ObjectName': exec.objectName,
@@ -1050,10 +1144,19 @@ export class DtsxSerializer {
       node['@_DTS:Description'] = exec.description;
     }
 
-    // Properties
+    // ForLoop / ForEachLoop attributes
+    for (const attrName of ['InitExpression', 'EvalExpression', 'AssignExpression']) {
+      if (exec.properties[attrName]) {
+        node[`@_DTS:${attrName}`] = exec.properties[attrName];
+      }
+    }
+
+    // Properties – skip SQLTask.* prefixed (emitted in ObjectData) and
+    // ConnectionName (redundant with connectionRefs, not emitted by VS).
     const propArray: any[] = [];
+    const skipProps = new Set(['InitExpression', 'EvalExpression', 'AssignExpression', 'ConnectionName']);
     for (const [name, value] of Object.entries(exec.properties)) {
-      if (!name.startsWith('SQLTask.')) {
+      if (!name.startsWith('SQLTask.') && !skipProps.has(name)) {
         propArray.push(this.buildPropertyNode(name, String(value)));
       }
     }
@@ -1061,28 +1164,33 @@ export class DtsxSerializer {
       node['DTS:Property'] = propArray;
     }
 
-    // Variables
+    // Variables – VS always emits <DTS:Variables /> even when empty
     if (exec.variables.length > 0) {
       node['DTS:Variables'] = {
         'DTS:Variable': exec.variables.map(v => this.buildVariableNode(v)),
       };
+    } else {
+      node['DTS:Variables'] = '';
     }
 
     // ObjectData (for SQL tasks, etc.)
-    const sqlTaskProps: Record<string, string> = {};
-    for (const [name, value] of Object.entries(exec.properties)) {
-      if (name.startsWith('SQLTask.')) {
-        sqlTaskProps[name.replace('SQLTask.', '')] = String(value);
-      }
-    }
-    if (exec.executableType === 'Microsoft.ExecuteSQLTask') {
+    if (isSqlTask) {
       const sqlTaskData: any = {};
       if (exec.connectionRefs.length > 0) {
-        sqlTaskData['@_SQLTask:Connection'] = exec.connectionRefs[0].connectionManagerId;
+        sqlTaskData['@_SQLTask:Connection'] = this.resolveConnectionDtsId(
+          exec.connectionRefs[0].connectionManagerId,
+        );
+      }
+      const sqlTaskProps: Record<string, string> = {};
+      for (const [name, value] of Object.entries(exec.properties)) {
+        if (name.startsWith('SQLTask.')) {
+          sqlTaskProps[name.replace('SQLTask.', '')] = String(value);
+        }
       }
       for (const [name, value] of Object.entries(sqlTaskProps)) {
         sqlTaskData[`@_SQLTask:${name}`] = value;
       }
+      sqlTaskData['@_xmlns:SQLTask'] = SQLTASK_NAMESPACE;
       node['DTS:ObjectData'] = {
         'SQLTask:SqlTaskData': sqlTaskData,
       };
@@ -1133,6 +1241,18 @@ export class DtsxSerializer {
     return node;
   }
 
+  private hasExecutableType(executables: SsisExecutable[], executableType: string): boolean {
+    for (const executable of executables) {
+      if (executable.executableType === executableType) {
+        return true;
+      }
+      if (executable.children && this.hasExecutableType(executable.children, executableType)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // ---- "Merge" mode -------------------------------------------------------
 
   /**
@@ -1142,19 +1262,37 @@ export class DtsxSerializer {
    */
   private serializeMerge(model: SsisPackageModel, originalXml: string): string {
     const doc = this.parser.parse(originalXml);
-    const root = doc['DTS:Executable'] ?? doc['Executable'];
-    if (!root) {
+    const rawRoot = doc['DTS:Executable'] ?? doc['Executable'];
+    if (!rawRoot) {
       // Fall back to new mode if the original is unparseable
       return this.serializeNew(model);
     }
+    // Unwrap the array produced by the isArray callback (see parse()).
+    const root = Array.isArray(rawRoot) ? rawRoot[0] : rawRoot;
 
     // Patch package-level attributes
-    root['@_DTS:ObjectName'] = model.packageName;
-    root['@_DTS:DTSID'] = model.packageId;
-    root['@_DTS:CreationDate'] = model.creationDate;
-    root['@_DTS:CreatorName'] = model.creatorName;
+    const existingObjectName = attr(root, 'ObjectName');
+    const existingPackageId = attr(root, 'DTSID');
+    const existingVersionGuid = attr(root, 'VersionGUID');
+    const existingCreationDate = attr(root, 'CreationDate');
+    const existingLocaleId = attr(root, 'LocaleID');
+    const existingVersionBuild = attr(root, 'VersionBuild');
+    const existingLastModifiedProductVersion = attr(root, 'LastModifiedProductVersion');
+    const existingCreatorName = attr(root, 'CreatorName');
+
+    root['@_DTS:ObjectName'] = model.packageName || existingObjectName || 'Package';
+    root['@_DTS:DTSID'] = model.packageId || existingPackageId || newGuid();
+    root['@_DTS:VersionGUID'] = existingVersionGuid || newGuid();
+    root['@_DTS:CreationDate'] = model.creationDate || existingCreationDate || new Date().toLocaleDateString('en-US');
+    root['@_DTS:LocaleID'] = existingLocaleId || DEFAULT_LOCALE_ID;
+    root['@_DTS:VersionBuild'] = existingVersionBuild || DEFAULT_VERSION_BUILD;
+    root['@_DTS:LastModifiedProductVersion'] = existingLastModifiedProductVersion || DEFAULT_LAST_MODIFIED_PRODUCT_VERSION;
+    root['@_DTS:CreatorName'] = model.creatorName || existingCreatorName || '';
     if (model.description) {
       root['@_DTS:Description'] = model.description;
+    }
+    if (this.hasExecutableType(model.executables, 'Microsoft.ExecuteSQLTask')) {
+      root['@_xmlns:SQLTask'] = SQLTASK_NAMESPACE;
     }
 
     // Patch properties
@@ -1178,20 +1316,57 @@ export class DtsxSerializer {
       root['DTS:DesignTimeProperties'] = { __cdata: dtpBase64 };
     }
 
+    // Remove the parsed ?xml processing instruction from the doc object
+    // before building, otherwise the builder includes it AND we prepend
+    // our own, resulting in a duplicate declaration.
+    delete doc['?xml'];
     const xmlDecl = '<?xml version="1.0"?>\n';
     const body = this.builder.build(doc);
-    return xmlDecl + body;
+    return this.normalizeXmlWhitespace(xmlDecl + body);
+  }
+
+  private normalizeXmlWhitespace(xml: string): string {
+    // Remove trailing spaces on each line and collapse runs of blank lines
+    // introduced by merge formatting while keeping readable separation.
+    const withoutTrailingSpaces = xml
+      .split('\n')
+      .map(line => line.replace(/[\t ]+$/g, ''))
+      .join('\n');
+
+    const collapsedBlankRuns = withoutTrailingSpaces.replace(/\n{3,}/g, '\n\n');
+
+    // Remove single blank lines that appear between two closing tags
+    // (e.g. </DTS:DesignTimeProperties> ... </DTS:Executable>).
+    return collapsedBlankRuns.replace(
+      /(\n[ \t]*<\/[^>]+>)\n[ \t]*\n([ \t]*<\/[^>]+>)/g,
+      '$1\n$2',
+    );
   }
 
   private patchProperties(root: any, properties: Record<string, string>, formatVersion: number): void {
-    const propArray: any[] = [];
-    // Always include PackageFormatVersion first
-    propArray.push(this.buildPropertyNode('PackageFormatVersion', String(formatVersion)));
-    for (const [name, value] of Object.entries(properties)) {
-      if (name === 'PackageFormatVersion') { continue; }
-      propArray.push(this.buildPropertyNode(name, value));
+    // Merge into existing property nodes to preserve extra attributes like DTS:DataType
+    const existingProps = asArray(root['DTS:Property']);
+    const existingByName = new Map<string, any>();
+    for (const p of existingProps) {
+      const name = attr(p, 'Name');
+      if (name) { existingByName.set(name, p); }
     }
-    root['DTS:Property'] = propArray;
+
+    const allNames = new Set<string>(['PackageFormatVersion', ...Object.keys(properties)]);
+    const resultProps: any[] = [];
+
+    for (const name of allNames) {
+      const value = name === 'PackageFormatVersion' ? String(formatVersion) : properties[name];
+      const existing = existingByName.get(name);
+      if (existing) {
+        // Update value in place, preserving other attributes on the node
+        existing['#text'] = value;
+        resultProps.push(existing);
+      } else {
+        resultProps.push(this.buildPropertyNode(name, value));
+      }
+    }
+    root['DTS:Property'] = resultProps;
   }
 
   private patchConnectionManagers(root: any, connectionManagers: ConnectionManager[]): void {
@@ -1199,9 +1374,104 @@ export class DtsxSerializer {
       delete root['DTS:ConnectionManagers'];
       return;
     }
+
+    const existingContainer = root['DTS:ConnectionManagers'];
+    if (!existingContainer) {
+      // No existing CMs — build all from scratch
+      root['DTS:ConnectionManagers'] = {
+        'DTS:ConnectionManager': connectionManagers.map(cm => this.buildConnectionManagerNode(cm)),
+      };
+      return;
+    }
+
+    const existingNodes = asArray(existingContainer['DTS:ConnectionManager']);
+    const byDtsId = new Map<string, any>();
+    const byName = new Map<string, any>();
+    for (const node of existingNodes) {
+      const id = attr(node, 'DTSID');
+      const name = attr(node, 'ObjectName');
+      if (id) { byDtsId.set(id, node); }
+      if (name) { byName.set(name, node); }
+    }
+
+    const resultNodes = connectionManagers.map(cm => {
+      const existing = (cm.dtsId ? byDtsId.get(cm.dtsId) : undefined)
+                       ?? byName.get(cm.objectName);
+      if (existing) {
+        return this.mergeConnectionManagerNode(existing, cm);
+      }
+      return this.buildConnectionManagerNode(cm);
+    });
+
     root['DTS:ConnectionManagers'] = {
-      'DTS:ConnectionManager': connectionManagers.map(cm => this.buildConnectionManagerNode(cm)),
+      'DTS:ConnectionManager': resultNodes,
     };
+  }
+
+  /**
+   * Merge model changes into an existing connection-manager XML node,
+   * preserving inner attributes and elements the model doesn't represent.
+   */
+  private mergeConnectionManagerNode(node: any, cm: ConnectionManager): any {
+    // Patch outer attributes
+    node['@_DTS:refId'] = `Package.ConnectionManagers[${cm.objectName}]`;
+    node['@_DTS:CreationName'] = cm.creationName;
+    if (cm.dtsId) { node['@_DTS:DTSID'] = cm.dtsId; }
+    node['@_DTS:ObjectName'] = cm.objectName;
+    if (cm.description) {
+      node['@_DTS:Description'] = cm.description;
+    } else {
+      delete node['@_DTS:Description'];
+    }
+
+    // Patch the inner properties inside DTS:ObjectData > DTS:ConnectionManager
+    const objectData = node['DTS:ObjectData'] ?? {};
+    // The isArray callback forces DTS:ConnectionManager to always be an array — unwrap it
+    const innerRaw = objectData['DTS:ConnectionManager'];
+    const inner = Array.isArray(innerRaw) ? (innerRaw[0] ?? {}) : (innerRaw ?? {});
+
+    // Build a set of property names that live as attributes on the inner CM
+    // (so we update them there instead of creating duplicate DTS:Property nodes)
+    const innerAttrNames = new Set<string>();
+    for (const key of Object.keys(inner)) {
+      if (key.startsWith('@_')) {
+        const attrName = key.replace('@_DTS:', '').replace('@_', '');
+        innerAttrNames.add(attrName);
+      }
+    }
+
+    // Always ensure ConnectionString is present and up-to-date.
+    // Use attributes on the inner CM node to match Visual Studio format.
+    if (cm.connectionString) {
+      // If it was an existing attribute, update in place; otherwise add as new attribute
+      if (innerAttrNames.has('ConnectionString')) {
+        const csKey = inner['@_DTS:ConnectionString'] !== undefined ? '@_DTS:ConnectionString' : '@_ConnectionString';
+        inner[csKey] = cm.connectionString;
+      } else {
+        // Migrate from DTS:Property to attribute
+        inner['@_DTS:ConnectionString'] = cm.connectionString;
+      }
+    }
+
+    // Update other model properties as attributes
+    for (const [name, value] of Object.entries(cm.properties)) {
+      if (name === 'ConnectionString') { continue; }
+      if (innerAttrNames.has(name)) {
+        const key = inner[`@_DTS:${name}`] !== undefined ? `@_DTS:${name}` : `@_${name}`;
+        inner[key] = value;
+      } else {
+        // Add as new attribute
+        inner[`@_DTS:${name}`] = value;
+      }
+    }
+
+    // Remove any legacy DTS:Property children — all values are now attributes
+    delete inner['DTS:Property'];
+
+    objectData['DTS:ConnectionManager'] = inner;
+    node['DTS:ObjectData'] = objectData;
+
+    return node;
   }
 
   private patchVariables(root: any, variables: SsisVariable[]): void {
@@ -1219,9 +1489,161 @@ export class DtsxSerializer {
       delete root['DTS:Executables'];
       return;
     }
+
+    const existingContainer = root['DTS:Executables'];
+    if (!existingContainer) {
+      // No existing executables — build all from scratch
+      root['DTS:Executables'] = {
+        'DTS:Executable': executables.map(e => this.buildExecutableNode(e, parentRef)),
+      };
+      return;
+    }
+
+    const existingNodes = asArray(existingContainer['DTS:Executable']);
+    const byDtsId = new Map<string, any>();
+    const byName = new Map<string, any>();
+    for (const node of existingNodes) {
+      const id = attr(node, 'DTSID');
+      const name = attr(node, 'ObjectName');
+      if (id) { byDtsId.set(id, node); }
+      if (name) { byName.set(name, node); }
+    }
+
+    const resultNodes = executables.map(exec => {
+      // If the model has a DTSID, only match by DTSID. Falling back to
+      // ObjectName can collide when multiple tasks share the same default
+      // name (e.g. "Execute SQL Task"), causing new tasks to overwrite
+      // existing nodes in merge mode.
+      const existing = exec.dtsId
+        ? byDtsId.get(exec.dtsId)
+        : byName.get(exec.objectName);
+      if (existing) {
+        return this.mergeExecutableNode(existing, exec, parentRef);
+      }
+      // New executable — build from scratch
+      return this.buildExecutableNode(exec, parentRef);
+    });
+
     root['DTS:Executables'] = {
-      'DTS:Executable': executables.map(e => this.buildExecutableNode(e, parentRef)),
+      'DTS:Executable': resultNodes,
     };
+  }
+
+  /**
+   * Merge model changes into an existing executable XML node, preserving
+   * elements the model doesn't fully represent: ObjectData for non-SQL tasks
+   * (Data Flow pipelines, Script Tasks, etc.), ForEachEnumerator,
+   * EventHandlers, LoggingOptions, PropertyExpression, and any other
+   * child elements.
+   */
+  private mergeExecutableNode(node: any, exec: SsisExecutable, parentRef: string): any {
+    const refId = `${parentRef}\\${exec.objectName}`;
+    const isSqlTask = exec.executableType === 'Microsoft.ExecuteSQLTask';
+
+    // Patch known attributes
+    node['@_DTS:refId'] = refId;
+    node['@_DTS:CreationName'] = exec.executableType;
+    if (exec.dtsId) { node['@_DTS:DTSID'] = exec.dtsId; }
+    node['@_DTS:ExecutableType'] = exec.executableType;
+    node['@_DTS:ObjectName'] = exec.objectName;
+    if (exec.description) {
+      node['@_DTS:Description'] = exec.description;
+    } else {
+      delete node['@_DTS:Description'];
+    }
+
+    // ForLoop / ForEachLoop attributes
+    for (const attrName of ['InitExpression', 'EvalExpression', 'AssignExpression']) {
+      if (exec.properties[attrName]) {
+        node[`@_DTS:${attrName}`] = exec.properties[attrName];
+      } else {
+        delete node[`@_DTS:${attrName}`];
+      }
+    }
+
+    // Patch DTS:Property nodes (merge values but preserve extra attributes).
+    // Skip ConnectionName — it is redundant with connectionRefs and not
+    // emitted by Visual Studio.
+    const existingProps = asArray(node['DTS:Property']);
+    const existingPropsByName = new Map<string, any>();
+    for (const p of existingProps) {
+      const name = attr(p, 'Name');
+      if (name) { existingPropsByName.set(name, p); }
+    }
+
+    const resultProps: any[] = [];
+    const skipProps = new Set(['InitExpression', 'EvalExpression', 'AssignExpression', 'ConnectionName']);
+    for (const [name, value] of Object.entries(exec.properties)) {
+      if (name.startsWith('SQLTask.') || skipProps.has(name)) { continue; }
+      const existing = existingPropsByName.get(name);
+      if (existing) {
+        existing['#text'] = String(value);
+        resultProps.push(existing);
+        existingPropsByName.delete(name);
+      } else {
+        resultProps.push(this.buildPropertyNode(name, String(value)));
+      }
+    }
+    // Keep remaining original properties not in the model (except ConnectionName)
+    for (const [name, p] of existingPropsByName) {
+      if (name === 'ConnectionName') { continue; }
+      resultProps.push(p);
+    }
+    if (resultProps.length > 0) {
+      node['DTS:Property'] = resultProps;
+    } else {
+      delete node['DTS:Property'];
+    }
+
+    // Patch variables – VS always emits <DTS:Variables /> even when empty
+    if (exec.variables.length > 0) {
+      node['DTS:Variables'] = {
+        'DTS:Variable': exec.variables.map(v => this.buildVariableNode(v)),
+      };
+    } else if (!node['DTS:Variables']) {
+      node['DTS:Variables'] = '';
+    }
+
+    // Patch ObjectData ONLY for SQL Task — for all other types (Data Flow,
+    // Script Task, etc.) the existing ObjectData is preserved untouched.
+    if (isSqlTask) {
+      const sqlTaskData: any = {};
+      if (exec.connectionRefs.length > 0) {
+        sqlTaskData['@_SQLTask:Connection'] = this.resolveConnectionDtsId(
+          exec.connectionRefs[0].connectionManagerId,
+        );
+      }
+      const sqlTaskProps: Record<string, string> = {};
+      for (const [name, value] of Object.entries(exec.properties)) {
+        if (name.startsWith('SQLTask.')) {
+          sqlTaskProps[name.replace('SQLTask.', '')] = String(value);
+        }
+      }
+      for (const [name, value] of Object.entries(sqlTaskProps)) {
+        sqlTaskData[`@_SQLTask:${name}`] = value;
+      }
+      sqlTaskData['@_xmlns:SQLTask'] = SQLTASK_NAMESPACE;
+      node['DTS:ObjectData'] = {
+        'SQLTask:SqlTaskData': sqlTaskData,
+      };
+    }
+    // All other executable types: ObjectData, ForEachEnumerator,
+    // ForEachVariableMappings, EventHandlers, LoggingOptions,
+    // PropertyExpression, etc. are left untouched on the node.
+
+    // Recursively merge children (for containers like Sequence, ForEachLoop, etc.)
+    if (exec.children && exec.children.length > 0) {
+      this.patchExecutables(node, exec.children, refId);
+    }
+
+    // Patch child precedence constraints
+    if (exec.childConstraints && exec.childConstraints.length > 0) {
+      node['DTS:PrecedenceConstraints'] = {
+        'DTS:PrecedenceConstraint': exec.childConstraints.map(pc => this.buildPrecedenceConstraintNode(pc)),
+      };
+    }
+
+    return node;
   }
 
   private patchPrecedenceConstraints(root: any, constraints: PrecedenceConstraint[]): void {

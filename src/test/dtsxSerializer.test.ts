@@ -304,6 +304,94 @@ describe('DtsxSerializer – round-trip', () => {
     expect(model2.executables[0].objectName).toBe('Renamed Task');
     expect(model2.executables).toHaveLength(2);
   });
+
+  it('should preserve newly added executable with duplicate object name in merge mode', () => {
+    const model = serializer.parse(DTSX_WITH_EXECUTABLES);
+
+    model.executables.push({
+      id: '{11111111-2222-3333-4444-555555555555}',
+      dtsId: '{11111111-2222-3333-4444-555555555555}',
+      objectName: 'SQL Task 1',
+      executableType: 'Microsoft.ExecuteSQLTask',
+      description: '',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 80,
+      properties: {
+        'SQLTask.SqlStatementSource': 'SELECT 3',
+      },
+      connectionRefs: [],
+      variables: [],
+      unknownElements: [],
+    });
+
+    const xml = serializer.serialize(model, DTSX_WITH_EXECUTABLES);
+    const model2 = serializer.parse(xml);
+
+    expect(model2.executables).toHaveLength(3);
+    expect(model2.executables.some(e => e.dtsId === '{11111111-2222-3333-4444-555555555555}')).toBe(true);
+  });
+
+  it('should add SQLTask namespace when execute sql task is added in merge mode', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+
+    model.executables.push({
+      id: '{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}',
+      dtsId: '{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}',
+      objectName: 'Execute SQL Task',
+      executableType: 'Microsoft.ExecuteSQLTask',
+      description: '',
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 80,
+      properties: {
+        'SQLTask.SqlStatementSource': 'SELECT 1',
+      },
+      connectionRefs: [],
+      variables: [],
+      unknownElements: [],
+    });
+
+    const xml = serializer.serialize(model, MINIMAL_DTSX);
+    expect(xml).toContain('xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask"');
+    expect(xml).toContain('SQLTask:SqlTaskData');
+    // Namespace appears on both the root and the SqlTaskData element (matches VS)
+    expect((xml.match(/xmlns:SQLTask=/g) ?? [])).toHaveLength(2);
+
+    const reparsed = serializer.parse(xml);
+    expect(reparsed.executables).toHaveLength(1);
+    expect(reparsed.executables[0].executableType).toBe('Microsoft.ExecuteSQLTask');
+    expect(reparsed.executables[0].properties['SQLTask.SqlStatementSource']).toBe('SELECT 1');
+  });
+
+  it('should assign package DTSID during merge when original is blank', () => {
+    const blankIdXml = `<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate=""
+  DTS:LocaleID=""
+  DTS:VersionBuild=""
+  DTS:LastModifiedProductVersion=""
+  DTS:CreatorName=""
+  DTS:DTSID=""
+  DTS:VersionGUID=""
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:ObjectName="Package">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+</DTS:Executable>`;
+
+    const model = serializer.parse(blankIdXml);
+    const xml = serializer.serialize(model, blankIdXml);
+
+    expect(xml).toMatch(/DTS:DTSID="\{[0-9A-F\-]{36}\}"/);
+    expect(xml).toMatch(/DTS:VersionGUID="\{[0-9A-F\-]{36}\}"/);
+    expect(xml).toMatch(/DTS:CreationDate="[^"]+"/);
+    expect(xml).toContain('DTS:LocaleID="1033"');
+    expect(xml).toContain('DTS:VersionBuild="0"');
+    expect(xml).toMatch(/DTS:LastModifiedProductVersion="[^"]+"/);
+  });
 });
 
 describe('DtsxSerializer – unknown element preservation', () => {
@@ -386,5 +474,337 @@ describe('DtsxSerializer – design-time properties', () => {
   it('should return null for empty executables', () => {
     const result = serializer.serializeDesignTimeProperties([]);
     expect(result).toBeNull();
+  });
+
+  it('should parse SSIS 2019 GraphLayout NodeLayout format (raw XML in CDATA)', () => {
+    const graphLayoutXml = `<?xml version="1.0"?>
+<Objects Version="8">
+  <Package design-time-name="Package">
+    <LayoutInfo>
+      <GraphLayout Capacity="4">
+        <NodeLayout Size="150.4,41.6" Id="Package\\Data Flow Task" TopLeft="299.28,71.11" />
+      </GraphLayout>
+    </LayoutInfo>
+  </Package>
+</Objects>`;
+    const positions = serializer.parseDesignTimeProperties(graphLayoutXml);
+    expect(positions).not.toBeNull();
+    expect(positions!.has('Data Flow Task')).toBe(true);
+    const pos = positions!.get('Data Flow Task')!;
+    expect(pos.x).toBeCloseTo(299.28, 1);
+    expect(pos.y).toBeCloseTo(71.11, 1);
+    expect(pos.width).toBeCloseTo(150.4, 1);
+    expect(pos.height).toBeCloseTo(41.6, 1);
+  });
+});
+
+describe('DtsxSerializer – Q1-style attribute-based connection string', () => {
+  const DTSX_WITH_ATTR_CONNSTR = `<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="5/15/2023 1:02:25 AM"
+  DTS:DTSID="{125965C9-90BD-4D1B-9077-C93B597D26AC}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:ObjectName="Package1">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[MyServer.MyDB]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{F29007BE-5E5D-4EDA-A05F-6B763EF2E141}"
+      DTS:ObjectName="MyServer.MyDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectRetryCount="1"
+          DTS:ConnectRetryInterval="5"
+          DTS:ConnectionString="Data Source=MyServer;Initial Catalog=MyDB;Provider=SQLOLEDB.1;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+</DTS:Executable>`;
+
+  it('should parse connection string from DTS:ConnectionString attribute', () => {
+    const model = serializer.parse(DTSX_WITH_ATTR_CONNSTR);
+    expect(model.connectionManagers).toHaveLength(1);
+    const cm = model.connectionManagers[0];
+    expect(cm.objectName).toBe('MyServer.MyDB');
+    expect(cm.connectionString).toBe('Data Source=MyServer;Initial Catalog=MyDB;Provider=SQLOLEDB.1;');
+    expect(cm.creationName).toBe('OLEDB');
+  });
+
+  it('should round-trip attribute-based connection string in merge mode', () => {
+    const model = serializer.parse(DTSX_WITH_ATTR_CONNSTR);
+    // Modify the connection string
+    model.connectionManagers[0].connectionString = 'Data Source=NewServer;Initial Catalog=NewDB;Provider=SQLOLEDB.1;';
+    const xml = serializer.serialize(model, DTSX_WITH_ATTR_CONNSTR);
+    const model2 = serializer.parse(xml);
+    expect(model2.connectionManagers[0].connectionString).toBe('Data Source=NewServer;Initial Catalog=NewDB;Provider=SQLOLEDB.1;');
+    // Should preserve the attribute format (no DTS:Property child for ConnectionString)
+    expect(xml).toContain('DTS:ConnectionString="Data Source=NewServer;Initial Catalog=NewDB;Provider=SQLOLEDB.1;"');
+  });
+
+  it('should migrate DTS:Property-based CMs to attribute format during merge', () => {
+    // DTSX_WITH_CONNECTIONS uses <DTS:Property DTS:Name="ConnectionString">...</DTS:Property>
+    const model = serializer.parse(DTSX_WITH_CONNECTIONS);
+    const xml = serializer.serialize(model, DTSX_WITH_CONNECTIONS);
+    // After merge, ConnectionString should be an attribute, not a DTS:Property child
+    expect(xml).toContain('DTS:ConnectionString="Data Source=.;Initial Catalog=TestDb;"');
+    expect(xml).not.toContain('<DTS:Property DTS:Name="ConnectionString">');
+    // RetainSameConnection should also be an attribute
+    expect(xml).toContain('DTS:RetainSameConnection="False"');
+    // Verify round-trip still works
+    const model2 = serializer.parse(xml);
+    expect(model2.connectionManagers[0].connectionString).toBe('Data Source=.;Initial Catalog=TestDb;');
+  });
+
+  it('should serialize new connection managers with attribute format', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.connectionManagers.push({
+      objectName: 'NewConn',
+      creationName: 'OLEDB',
+      dtsId: '{AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA}',
+      connectionString: 'Data Source=srv;Initial Catalog=db;',
+      description: '',
+      properties: { RetainSameConnection: 'False' },
+    });
+    const xml = serializer.serialize(model, MINIMAL_DTSX);
+    // New CM should use attribute format
+    expect(xml).toContain('DTS:ConnectionString="Data Source=srv;Initial Catalog=db;"');
+    expect(xml).toContain('DTS:RetainSameConnection="False"');
+    expect(xml).not.toContain('<DTS:Property DTS:Name="ConnectionString">');
+  });
+});
+
+describe('DtsxSerializer – Data Flow Task parsing', () => {
+  const DTSX_WITH_DATA_FLOW = `<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:refId="Package"
+  DTS:CreationDate="5/15/2023"
+  DTS:DTSID="{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:ObjectName="DFPkg">
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager
+      DTS:refId="Package.ConnectionManagers[MyConn]"
+      DTS:CreationName="OLEDB"
+      DTS:DTSID="{11111111-2222-3333-4444-555555555555}"
+      DTS:ObjectName="MyConn">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+          DTS:ConnectionString="Data Source=.;Initial Catalog=TestDB;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+  <DTS:Executables>
+    <DTS:Executable
+      DTS:refId="Package\\Data Flow Task"
+      DTS:CreationName="Microsoft.Pipeline"
+      DTS:DTSID="{CA9D6F37-6704-4A45-AA1F-A9615C32CB52}"
+      DTS:ExecutableType="Microsoft.Pipeline"
+      DTS:ObjectName="Data Flow Task">
+      <DTS:ObjectData>
+        <pipeline version="1">
+          <components>
+            <component
+              refId="Package\\Data Flow Task\\OLE DB Source"
+              componentClassID="Microsoft.OLEDBSource"
+              name="OLE DB Source">
+              <outputs>
+                <output
+                  refId="Package\\Data Flow Task\\OLE DB Source.Outputs[OLE DB Source Output]"
+                  name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Package\\Data Flow Task\\OLE DB Source.Outputs[OLE DB Source Output].Columns[id]"
+                      dataType="i4" name="id" />
+                  </outputColumns>
+                  <externalMetadataColumns isUsed="True">
+                    <externalMetadataColumn refId="Package\\Data Flow Task\\OLE DB Source.Outputs[OLE DB Source Output].ExternalColumns[id]"
+                      dataType="i4" name="id" />
+                  </externalMetadataColumns>
+                </output>
+              </outputs>
+              <connections>
+                <connection
+                  refId="Package\\Data Flow Task\\OLE DB Source.Connections[OleDbConnection]"
+                  connectionManagerRefId="Package.ConnectionManagers[MyConn]"
+                  name="OleDbConnection" />
+              </connections>
+            </component>
+            <component
+              refId="Package\\Data Flow Task\\OLE DB Destination"
+              componentClassID="Microsoft.OLEDBDestination"
+              name="OLE DB Destination">
+              <inputs>
+                <input
+                  refId="Package\\Data Flow Task\\OLE DB Destination.Inputs[OLE DB Destination Input]"
+                  name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="Package\\Data Flow Task\\OLE DB Destination.Inputs[OLE DB Destination Input].Columns[id]"
+                      cachedDataType="i4" cachedName="id" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path
+              refId="Package\\Data Flow Task.Paths[OLE DB Source Output]"
+              endId="Package\\Data Flow Task\\OLE DB Destination.Inputs[OLE DB Destination Input]"
+              name="OLE DB Source Output"
+              startId="Package\\Data Flow Task\\OLE DB Source.Outputs[OLE DB Source Output]" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>`;
+
+  it('should parse the Data Flow Task as a Microsoft.Pipeline executable', () => {
+    const model = serializer.parse(DTSX_WITH_DATA_FLOW);
+    expect(model.executables).toHaveLength(1);
+    expect(model.executables[0].executableType).toBe('Microsoft.Pipeline');
+    expect(model.executables[0].objectName).toBe('Data Flow Task');
+  });
+
+  it('should parse data flow model with components and paths', () => {
+    // Parse the raw XML to get the raw executable node for parseDataFlowModel
+    const { XMLParser } = require('fast-xml-parser');
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      attributeNamePrefix: '@_',
+      cdataPropName: '__cdata',
+      trimValues: false,
+      parseTagValue: false,
+      allowBooleanAttributes: true,
+      removeNSPrefix: false,
+      processEntities: true,
+      numberParseOptions: { leadingZeros: false, hex: false },
+      isArray: (tagName: string) => {
+        const arrayTags = [
+          'DTS:Executable', 'DTS:ConnectionManager', 'DTS:Property',
+          'component', 'path', 'input', 'output',
+          'inputColumn', 'outputColumn', 'externalMetadataColumn', 'property',
+        ];
+        return arrayTags.includes(tagName);
+      },
+    });
+    const doc = parser.parse(DTSX_WITH_DATA_FLOW);
+    const root = Array.isArray(doc['DTS:Executable']) ? doc['DTS:Executable'][0] : doc['DTS:Executable'];
+    const execNodes = root['DTS:Executables']['DTS:Executable'];
+    const dfExec = Array.isArray(execNodes) ? execNodes[0] : execNodes;
+
+    const dfModel = serializer.parseDataFlowModel(dfExec);
+    expect(dfModel).not.toBeNull();
+    expect(dfModel!.components).toHaveLength(2);
+    expect(dfModel!.paths).toHaveLength(1);
+
+    const source = dfModel!.components.find(c => c.name === 'OLE DB Source');
+    expect(source).toBeDefined();
+    expect(source!.connectionManagerRefId).toBe('Package.ConnectionManagers[MyConn]');
+    expect(source!.outputs).toHaveLength(1);
+
+    const dest = dfModel!.components.find(c => c.name === 'OLE DB Destination');
+    expect(dest).toBeDefined();
+    expect(dest!.inputs).toHaveLength(1);
+
+    const path = dfModel!.paths[0];
+    expect(path.name).toBe('OLE DB Source Output');
+  });
+
+  // ---- SQL Task serialization fidelity ----
+
+  it('should emit CreationName attribute on executable nodes', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: {}, connectionRefs: [], variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    expect(xml).toContain('DTS:CreationName="Microsoft.ExecuteSQLTask"');
+  });
+
+  it('should emit empty DTS:Variables element on executables without variables', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: {}, connectionRefs: [], variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    expect(xml).toMatch(/DTS:Variables/);
+  });
+
+  it('should emit xmlns:SQLTask on SqlTaskData element', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: { 'SQLTask.SqlStatementSource': 'SELECT 1' },
+      connectionRefs: [], variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    // The namespace should appear on the SqlTaskData element (inline)
+    const sqlTaskDataMatch = xml.match(/<SQLTask:SqlTaskData[^>]*>/);
+    expect(sqlTaskDataMatch).not.toBeNull();
+    expect(sqlTaskDataMatch![0]).toContain('xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask"');
+  });
+
+  it('should resolve connection name to DTSID in SQLTask:Connection', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.connectionManagers.push({
+      id: 'cm1',
+      dtsId: '{CCCCCCCC-DDDD-EEEE-FFFF-000000000001}',
+      refId: 'Package.ConnectionManagers[MyConn]',
+      objectName: 'MyConn',
+      creationName: 'ADO.NET:System.Data.SqlClient.SqlConnection',
+      connectionString: 'Server=.;Database=test;',
+      retainSameConnection: false,
+      description: '',
+      properties: {},
+    });
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: {},
+      connectionRefs: [{ connectionManagerId: 'MyConn', connectionManagerName: '' }],
+      variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    expect(xml).toContain('SQLTask:Connection="{CCCCCCCC-DDDD-EEEE-FFFF-000000000001}"');
+    expect(xml).not.toContain('SQLTask:Connection="MyConn"');
+  });
+
+  it('should preserve DTSID when connection ref is already a GUID', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: {},
+      connectionRefs: [{ connectionManagerId: '{CCCCCCCC-DDDD-EEEE-FFFF-000000000001}', connectionManagerName: '' }],
+      variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    expect(xml).toContain('SQLTask:Connection="{CCCCCCCC-DDDD-EEEE-FFFF-000000000001}"');
+  });
+
+  it('should not emit ConnectionName as DTS:Property', () => {
+    const model = serializer.parse(MINIMAL_DTSX);
+    model.executables.push({
+      id: 'sql1', dtsId: '{11111111-0000-0000-0000-000000000001}',
+      objectName: 'Run Query', executableType: 'Microsoft.ExecuteSQLTask',
+      description: '', x: 0, y: 0, width: 200, height: 80,
+      properties: { ConnectionName: 'MyConn', 'SQLTask.SqlStatementSource': 'SELECT 1' },
+      connectionRefs: [{ connectionManagerId: 'MyConn', connectionManagerName: '' }],
+      variables: [], unknownElements: [],
+    });
+    const xml = serializer.serialize(model);
+    expect(xml).not.toContain('DTS:Name="ConnectionName"');
   });
 });

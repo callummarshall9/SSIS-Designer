@@ -168,12 +168,14 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
     const serverMatch = connStr.match(/(?:Server|Data Source)\s*=\s*([^;]+)/i);
     const displayName = serverMatch ? serverMatch[1].trim() : 'Custom Connection';
 
+    const isSqlAuth = !connStr.match(/Integrated Security\s*=\s*(true|sspi|yes)/i);
+
     const id = `ssis-conn-${Date.now()}`;
     const conn: SavedCatalogConnection = {
       id,
       serverName: displayName,
       port: 1433,
-      authType: connStr.match(/Integrated Security\s*=\s*(true|sspi|yes)/i) ? 'windows' : 'sql',
+      authType: isSqlAuth ? 'sql' : 'windows',
       rawConnectionString: true,
     };
 
@@ -367,6 +369,7 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
           await this.context.secrets.store(conn.id, connStr);
         }
         await client.connectWithConnectionString(connStr);
+        // Apply impersonation login if configured (e.g. SQL auth from Linux)
       } else {
         let password = await this.context.secrets.get(conn.id);
 
@@ -491,6 +494,14 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
   /** Get connection metadata by id. */
   getConnection(id: string): SavedCatalogConnection | undefined {
     return this._connections.find((c) => c.id === id);
+  }
+
+  /** Update a saved connection's fields and persist. */
+  async updateConnection(id: string, updates: Partial<SavedCatalogConnection>): Promise<void> {
+    this._connections = this._connections.map((c) =>
+      c.id === id ? { ...c, ...updates } : c,
+    );
+    await this._saveConnections();
   }
 
   // ── TreeDataProvider ────────────────────────────────────────────────

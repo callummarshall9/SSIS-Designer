@@ -424,12 +424,11 @@ export class TdsClient {
    * Deploy a project (.ispac binary) to SSISDB via `catalog.deploy_project`.
    */
   async deployProject(folderName: string, projectName: string, ispacData: Buffer): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('project_name', sql.NVarChar(128), projectName);
-    request.input('project_stream', sql.VarBinary(sql.MAX), ispacData);
-    await request.execute('[SSISDB].[catalog].[deploy_project]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[deploy_project]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'project_name', type: sql.NVarChar(128), value: projectName },
+      { name: 'project_stream', type: sql.VarBinary(sql.MAX), value: ispacData },
+    ]);
   }
 
   // ── Execution ───────────────────────────────────────────────────────
@@ -444,19 +443,17 @@ export class TdsClient {
     environmentRef?: number,
     use32bit?: boolean,
   ): Promise<number> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('package_name', sql.NVarChar(260), packageName);
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('project_name', sql.NVarChar(128), projectName);
-    request.input('use32bitruntime', sql.Bit, use32bit ? 1 : 0);
-    if (environmentRef !== undefined) {
-      request.input('reference_id', sql.BigInt, environmentRef);
-    } else {
-      request.input('reference_id', sql.BigInt, null);
-    }
-    request.output('execution_id', sql.BigInt);
-    const result = await request.execute('[SSISDB].[catalog].[create_execution]');
+    const result = await this._executeCatalogProcedure(
+      '[SSISDB].[catalog].[create_execution]',
+      [
+        { name: 'package_name', type: sql.NVarChar(260), value: packageName },
+        { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+        { name: 'project_name', type: sql.NVarChar(128), value: projectName },
+        { name: 'use32bitruntime', type: sql.Bit, value: use32bit ? 1 : 0 },
+        { name: 'reference_id', type: sql.BigInt, value: environmentRef ?? null },
+      ],
+      [{ name: 'execution_id', type: sql.BigInt }],
+    );
     return result.output.execution_id as number;
   }
 
@@ -469,23 +466,21 @@ export class TdsClient {
     parameterName: string,
     parameterValue: any,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('execution_id', sql.BigInt, executionId);
-    request.input('object_type', sql.SmallInt, objectType);
-    request.input('parameter_name', sql.NVarChar(128), parameterName);
-    request.input('parameter_value', sql.NVarChar(sql.MAX), String(parameterValue));
-    await request.execute('[SSISDB].[catalog].[set_execution_parameter_value]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[set_execution_parameter_value]', [
+      { name: 'execution_id', type: sql.BigInt, value: executionId },
+      { name: 'object_type', type: sql.SmallInt, value: objectType },
+      { name: 'parameter_name', type: sql.NVarChar(128), value: parameterName },
+      { name: 'parameter_value', type: sql.NVarChar(sql.MAX), value: String(parameterValue) },
+    ]);
   }
 
   /**
    * Start an execution.
    */
   async startExecution(executionId: number): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('execution_id', sql.BigInt, executionId);
-    await request.execute('[SSISDB].[catalog].[start_execution]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[start_execution]', [
+      { name: 'execution_id', type: sql.BigInt, value: executionId },
+    ]);
   }
 
   /**
@@ -601,12 +596,10 @@ export class TdsClient {
   /**
    * Create a folder in SSISDB.
    */
-  async createCatalogFolder(folderName: string, description = ''): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('folder_description', sql.NVarChar(1024), description);
-    await request.execute('[SSISDB].[catalog].[create_folder]');
+  async createCatalogFolder(folderName: string): Promise<void> {
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[create_folder]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+    ]);
   }
 
   // ── Environment management ──────────────────────────────────────────
@@ -615,23 +608,21 @@ export class TdsClient {
    * Create a new environment in SSISDB.
    */
   async createEnvironment(folderName: string, envName: string, description?: string): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    request.input('environment_description', sql.NVarChar(1024), description ?? '');
-    await request.execute('[SSISDB].[catalog].[create_environment]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[create_environment]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+      { name: 'environment_description', type: sql.NVarChar(1024), value: description ?? '' },
+    ]);
   }
 
   /**
    * Delete an environment from SSISDB.
    */
   async deleteEnvironment(folderName: string, envName: string): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    await request.execute('[SSISDB].[catalog].[delete_environment]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[delete_environment]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+    ]);
   }
 
   /**
@@ -643,13 +634,12 @@ export class TdsClient {
     propertyName: string,
     propertyValue: string,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    request.input('property_name', sql.NVarChar(128), propertyName);
-    request.input('property_value', sql.NVarChar(4000), propertyValue);
-    await request.execute('[SSISDB].[catalog].[set_environment_property]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[set_environment_property]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+      { name: 'property_name', type: sql.NVarChar(128), value: propertyName },
+      { name: 'property_value', type: sql.NVarChar(4000), value: propertyValue },
+    ]);
   }
 
   /**
@@ -664,16 +654,15 @@ export class TdsClient {
     sensitive: boolean,
     description?: string,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    request.input('variable_name', sql.NVarChar(128), varName);
-    request.input('data_type', sql.NVarChar(128), type);
-    request.input('sensitive', sql.Bit, sensitive ? 1 : 0);
-    request.input('value', sql.NVarChar(sql.MAX), value != null ? String(value) : '');
-    request.input('description', sql.NVarChar(1024), description ?? '');
-    await request.execute('[SSISDB].[catalog].[create_environment_variable]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[create_environment_variable]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+      { name: 'variable_name', type: sql.NVarChar(128), value: varName },
+      { name: 'data_type', type: sql.NVarChar(128), value: type },
+      { name: 'sensitive', type: sql.Bit, value: sensitive ? 1 : 0 },
+      { name: 'value', type: sql.NVarChar(sql.MAX), value: value != null ? String(value) : '' },
+      { name: 'description', type: sql.NVarChar(1024), value: description ?? '' },
+    ]);
   }
 
   /**
@@ -685,13 +674,12 @@ export class TdsClient {
     varName: string,
     value: any,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    request.input('variable_name', sql.NVarChar(128), varName);
-    request.input('value', sql.NVarChar(sql.MAX), value != null ? String(value) : '');
-    await request.execute('[SSISDB].[catalog].[set_environment_variable_value]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[set_environment_variable_value]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+      { name: 'variable_name', type: sql.NVarChar(128), value: varName },
+      { name: 'value', type: sql.NVarChar(sql.MAX), value: value != null ? String(value) : '' },
+    ]);
   }
 
   /**
@@ -702,12 +690,11 @@ export class TdsClient {
     envName: string,
     varName: string,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('environment_name', sql.NVarChar(128), envName);
-    request.input('variable_name', sql.NVarChar(128), varName);
-    await request.execute('[SSISDB].[catalog].[delete_environment_variable]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[delete_environment_variable]', [
+      { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+      { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+      { name: 'variable_name', type: sql.NVarChar(128), value: varName },
+    ]);
   }
 
   /**
@@ -785,31 +772,28 @@ export class TdsClient {
     envName: string,
     envFolderName?: string,
   ): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('folder_name', sql.NVarChar(128), folderName);
-    request.input('project_name', sql.NVarChar(128), projectName);
-    request.input('environment_name', sql.NVarChar(128), envName);
     // Reference type: 'R' for relative (same folder), 'A' for absolute
     const refType = envFolderName ? 'A' : 'R';
-    request.input('reference_type', sql.Char(1), refType);
-    if (envFolderName) {
-      request.input('environment_folder_name', sql.NVarChar(128), envFolderName);
-    } else {
-      request.input('environment_folder_name', sql.NVarChar(128), null);
-    }
-    request.output('reference_id', sql.BigInt);
-    await request.execute('[SSISDB].[catalog].[create_environment_reference]');
+    await this._executeCatalogProcedure(
+      '[SSISDB].[catalog].[create_environment_reference]',
+      [
+        { name: 'folder_name', type: sql.NVarChar(128), value: folderName },
+        { name: 'project_name', type: sql.NVarChar(128), value: projectName },
+        { name: 'environment_name', type: sql.NVarChar(128), value: envName },
+        { name: 'reference_type', type: sql.Char(1), value: refType },
+        { name: 'environment_folder_name', type: sql.NVarChar(128), value: envFolderName ?? null },
+      ],
+      [{ name: 'reference_id', type: sql.BigInt }],
+    );
   }
 
   /**
    * Delete an environment reference by reference_id.
    */
   async deleteEnvironmentReference(referenceId: number): Promise<void> {
-    this._ensureConnected();
-    const request = this.pool!.request();
-    request.input('reference_id', sql.BigInt, referenceId);
-    await request.execute('[SSISDB].[catalog].[delete_environment_reference]');
+    await this._executeCatalogProcedure('[SSISDB].[catalog].[delete_environment_reference]', [
+      { name: 'reference_id', type: sql.BigInt, value: referenceId },
+    ]);
   }
 
   // ── Execution data statistics & parameters ──────────────────────────
@@ -1010,6 +994,34 @@ export class TdsClient {
     if (!this.pool || !this.connected) {
       throw new Error('Not connected to SQL Server');
     }
+  }
+
+  /**
+   * Execute an SSISDB catalog stored procedure, wrapping it with
+   * `EXECUTE AS LOGIN` / `REVERT` when impersonation is configured.
+   *
+   * @param spName     Fully-qualified SP name, e.g. `[SSISDB].[catalog].[create_folder]`
+   * @param params     Array of `{ name, type, value }` input parameters
+   * @param outputDefs Optional array of `{ name, type }` output parameters
+   * @returns          The raw `IResult` when there are output params, else void
+   */
+  private async _executeCatalogProcedure(
+    spName: string,
+    params: { name: string; type: any; value: any }[],
+    outputDefs?: { name: string; type: any }[],
+  ): Promise<sql.IResult<any>> {
+    this._ensureConnected();
+
+    const request = this.pool!.request();
+    for (const p of params) {
+      request.input(p.name, p.type, p.value);
+    }
+    if (outputDefs) {
+      for (const o of outputDefs) {
+        request.output(o.name, o.type);
+      }
+    }
+    return request.execute(spName);
   }
 
   /**

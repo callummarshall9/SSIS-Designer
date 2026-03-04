@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { ConnectionManagerPanelRelay } from './panels/ConnectionManagerPanel';
 import { VariablePanelRelay } from './panels/VariablePanel';
 import { DtsxSerializer } from './canvas/shared/DtsxSerializer';
-import { SsisPackageModel } from './models/SsisPackageModel';
-import { getControlFlowNodeType } from './models/CanvasModel';
+import { SsisPackageModel, SsisExecutable } from './models/SsisPackageModel';
+import { getControlFlowNodeType, getDataFlowNodeType } from './models/CanvasModel';
 import { Node, Edge } from 'reactflow';
 
 export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
@@ -54,8 +55,12 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
         let lastOriginalXml: string = document.getText();
 
         // Guard to prevent re-entrant document updates from
-        // triggering another update cycle
-        let suppressDocChange = false;
+        // triggering another update cycle.
+        // Use a version counter instead of a boolean flag to avoid race
+        // conditions with async applyEdit — the onDidChangeTextDocument
+        // event can fire after the awaited applyEdit resolves.
+        let suppressDocChangeVersion = 0;
+        let lastSerializedXml = '';
 
         const getModel = () => currentModel;
 
@@ -64,9 +69,18 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
             if (!currentModel) { return; }
             try {
                 const xml = serializer.serialize(currentModel, lastOriginalXml);
+                const validationResult = XMLValidator.validate(xml);
+                if (validationResult !== true) {
+                    const errMsg = typeof validationResult === 'object'
+                        ? `${validationResult.err.msg} at line ${validationResult.err.line}`
+                        : 'Invalid XML generated';
+                    vscode.window.showErrorMessage(`Failed to save SSIS package: ${errMsg}`);
+                    return;
+                }
                 // Only apply edit if content actually changed
                 if (xml === document.getText()) { return; }
-                suppressDocChange = true;
+                suppressDocChangeVersion++;
+                lastSerializedXml = xml;
                 const edit = new vscode.WorkspaceEdit();
                 edit.replace(
                     document.uri,
@@ -75,9 +89,7 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
                 );
                 await vscode.workspace.applyEdit(edit);
                 lastOriginalXml = xml;
-                suppressDocChange = false;
             } catch (err) {
-                suppressDocChange = false;
                 console.error('Failed to serialize SSIS model:', err);
             }
         };
@@ -136,7 +148,12 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
         // Listen for document changes and sync to webview
         const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument(
             (e) => {
-                if (e.document.uri.toString() === document.uri.toString() && !suppressDocChange) {
+                if (e.document.uri.toString() === document.uri.toString()) {
+                    // Skip if this change was caused by our own serialization.
+                    // Compare against the last XML we serialized to detect our own edits.
+                    if (e.document.getText() === lastSerializedXml) {
+                        return;
+                    }
                     parseAndSendModel();
                 }
             }
@@ -163,6 +180,150 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
                 }
                 case 'ready': {
                     parseAndSendModel();
+                    return;
+                }
+
+                // Data flow view: parse the pipeline inside a Data Flow Task
+                // and send back the data flow model, nodes, and edges.
+                case 'openDataFlow': {
+                    if (!currentModel) { return; }
+                    const execId = message.executableId as string;
+
+                    // Find the executable in the model (flat or nested)
+                    const findExec = (list: SsisExecutable[]): SsisExecutable | undefined => {
+                        for (const ex of list) {
+                            if (ex.id === execId || ex.dtsId === execId) { return ex; }
+                            if (ex.children) {
+                                const found = findExec(ex.children);
+                                if (found) { return found; }
+                            }
+                        }
+                        return undefined;
+                    };
+                    const exec = findExec(currentModel.executables);
+                    if (!exec) { return; }
+
+                    // Re-parse the raw XML to get the original executable node
+                    // so we can pass it to parseDataFlowModel which needs the
+                    // raw XML structure, not the model.
+                    try {
+                        const parser = new XMLParser({
+                            ignoreAttributes: false,
+                            attributeNamePrefix: '@_',
+                            cdataPropName: '__cdata',
+                            trimValues: false,
+                            preserveOrder: false,
+                            parseTagValue: false,
+                            allowBooleanAttributes: true,
+                            removeNSPrefix: false,
+                            processEntities: true,
+                            commentPropName: '__comment',
+                            numberParseOptions: { leadingZeros: false, hex: false },
+                            isArray: (tagName: string) => {
+                                const arrayTags = [
+                                    'DTS:Variable', 'DTS:Executable', 'DTS:PrecedenceConstraint',
+                                    'DTS:ConnectionManager', 'DTS:Property', 'DTS:PackageParameter',
+                                    'component', 'path', 'input', 'output',
+                                    'inputColumn', 'outputColumn', 'externalMetadataColumn',
+                                    'property',
+                                ];
+                                return arrayTags.includes(tagName);
+                            },
+                        } as any);
+                        const doc = parser.parse(lastOriginalXml);
+                        const rawRoot = doc['DTS:Executable'] ?? doc['Executable'];
+                        const root = Array.isArray(rawRoot) ? rawRoot[0] : rawRoot;
+
+                        // Helper to find the raw executable node matching this task
+                        const findRawExec = (container: any): any | undefined => {
+                            const execContainer = container?.['DTS:Executables'];
+                            if (!execContainer) { return undefined; }
+                            const execNodes = Array.isArray(execContainer['DTS:Executable'])
+                                ? execContainer['DTS:Executable']
+                                : execContainer['DTS:Executable'] ? [execContainer['DTS:Executable']] : [];
+                            for (const rawExec of execNodes) {
+                                const rawDtsId = rawExec?.['@_DTS:DTSID'] ?? rawExec?.['@_DTSID'] ?? '';
+                                const rawName = rawExec?.['@_DTS:ObjectName'] ?? rawExec?.['@_ObjectName'] ?? '';
+                                if (rawDtsId === exec.dtsId || rawName === exec.objectName) {
+                                    return rawExec;
+                                }
+                                // Search children recursively
+                                const nested = findRawExec(rawExec);
+                                if (nested) { return nested; }
+                            }
+                            return undefined;
+                        };
+
+                        const rawExecNode = findRawExec(root);
+                        if (!rawExecNode) { return; }
+
+                        const dfModel = serializer.parseDataFlowModel(rawExecNode);
+                        if (!dfModel) { return; }
+
+                        // Try to extract data flow component positions from design-time properties
+                        const dtpRaw = root['DTS:DesignTimeProperties'];
+                        if (dtpRaw) {
+                            const dtpContent = typeof dtpRaw === 'object' && dtpRaw.__cdata
+                                ? String(dtpRaw.__cdata)
+                                : String(dtpRaw);
+                            const positions = serializer.parseDesignTimeProperties(dtpContent);
+                            if (positions) {
+                                for (const comp of dfModel.components) {
+                                    const pos = positions.get(comp.name) || positions.get(comp.refId);
+                                    if (pos) {
+                                        comp.x = pos.x;
+                                        comp.y = pos.y;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Convert data flow components to React Flow nodes
+                        const dfNodes: Node[] = dfModel.components.map((comp, idx) => ({
+                            id: comp.id || comp.refId || `df-comp-${idx}`,
+                            type: getDataFlowNodeType(comp.componentClassId),
+                            position: { x: comp.x ?? 0, y: comp.y ?? idx * 120 },
+                            data: comp,
+                            style: { width: 200, height: 60 },
+                        }));
+
+                        // Convert data flow paths to React Flow edges
+                        const dfEdges: Edge[] = dfModel.paths.map((p, idx) => {
+                            // Map fromOutputId → source component, toInputId → target component
+                            let sourceId = '';
+                            let targetId = '';
+                            for (const comp of dfModel.components) {
+                                for (const out of comp.outputs) {
+                                    if (out.refId === p.fromOutputId) {
+                                        sourceId = comp.id || comp.refId;
+                                    }
+                                }
+                                for (const inp of comp.inputs) {
+                                    if (inp.refId === p.toInputId) {
+                                        targetId = comp.id || comp.refId;
+                                    }
+                                }
+                            }
+                            return {
+                                id: p.id || `df-path-${idx}`,
+                                source: sourceId,
+                                target: targetId,
+                                type: 'dataPath',
+                                data: p,
+                            };
+                        });
+
+                        webviewPanel.webview.postMessage({
+                            type: 'openDataFlow',
+                            executableId: execId,
+                            executableName: exec.objectName,
+                            dataFlowModel: dfModel,
+                            nodes: dfNodes,
+                            edges: dfEdges,
+                        });
+                    } catch (err) {
+                        console.error('Failed to parse data flow model:', err);
+                    }
                     return;
                 }
 
