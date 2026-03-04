@@ -156,6 +156,12 @@ export function activate(context: vscode.ExtensionContext): void {
             }
         }),
 
+        vscode.commands.registerCommand('ssis.reconnectCatalog', (item: SsisTreeItem) => {
+            if (item?.metadata?.connectionId) {
+                ssisTreeDataProvider.reconnect(item.metadata.connectionId);
+            }
+        }),
+
         vscode.commands.registerCommand('ssis.createFolder', async (item: SsisTreeItem) => {
             if (!item?.metadata?.connectionId) { return; }
             const name = await vscode.window.showInputBox({ prompt: 'Folder name' });

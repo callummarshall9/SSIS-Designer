@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { ConnectionManagerPanelRelay } from './panels/ConnectionManagerPanel';
 import { VariablePanelRelay } from './panels/VariablePanel';
+import { DtsxSerializer } from './canvas/shared/DtsxSerializer';
+import { SsisPackageModel } from './models/SsisPackageModel';
+import { getControlFlowNodeType } from './models/CanvasModel';
+import { Node, Edge } from 'reactflow';
 
 export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = 'ssisDesigner.dtsxEditor';
@@ -40,14 +44,46 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
         // Set initial HTML content
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
-        // In-memory model reference (parsed elsewhere, but we track the document)
-        let currentModel: any = undefined;
+        // Serializer for round-trip XML ↔ model conversion
+        const serializer = new DtsxSerializer();
+
+        // In-memory model reference
+        let currentModel: SsisPackageModel | undefined;
+
+        // Track the last-known original XML so we can do merge-mode serialization
+        let lastOriginalXml: string = document.getText();
+
+        // Guard to prevent re-entrant document updates from
+        // triggering another update cycle
+        let suppressDocChange = false;
 
         const getModel = () => currentModel;
+
+        /** Serialize the current model back to the .dtsx document. */
+        const serializeToDocument = async () => {
+            if (!currentModel) { return; }
+            try {
+                const xml = serializer.serialize(currentModel, lastOriginalXml);
+                // Only apply edit if content actually changed
+                if (xml === document.getText()) { return; }
+                suppressDocChange = true;
+                const edit = new vscode.WorkspaceEdit();
+                edit.replace(
+                    document.uri,
+                    new vscode.Range(0, 0, document.lineCount, 0),
+                    xml
+                );
+                await vscode.workspace.applyEdit(edit);
+                lastOriginalXml = xml;
+                suppressDocChange = false;
+            } catch (err) {
+                suppressDocChange = false;
+                console.error('Failed to serialize SSIS model:', err);
+            }
+        };
+
         const onModelChanged = () => {
-            // Mark document dirty by writing back
-            const text = document.getText(); // For simple relay; serialize model in production
-            // Fire connection manager changed event
+            serializeToDocument();
             this.onConnectionManagersChanged?.();
         };
 
@@ -55,19 +91,53 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
         const connectionManagerRelay = new ConnectionManagerPanelRelay(getModel, onModelChanged);
         const variableRelay = new VariablePanelRelay(getModel, onModelChanged);
 
-        // Send the initial document content to the webview
-        function updateWebview(): void {
-            webviewPanel.webview.postMessage({
-                type: 'update',
-                text: document.getText(),
-            });
+        /**
+         * Parse the document XML into the model and send it to the webview
+         * as a fully hydrated `loadModel` message with React Flow nodes/edges.
+         */
+        function parseAndSendModel(): void {
+            try {
+                lastOriginalXml = document.getText();
+                currentModel = serializer.parse(lastOriginalXml);
+
+                // Convert executables to React Flow nodes + edges
+                const nodes: Node[] = currentModel.executables.map((exec) => ({
+                    id: exec.id,
+                    type: getControlFlowNodeType(exec.executableType),
+                    position: { x: exec.x, y: exec.y },
+                    data: exec,
+                    style: { width: exec.width || 200, height: exec.height || 80 },
+                }));
+
+                const edges: Edge[] = currentModel.precedenceConstraints.map((pc) => ({
+                    id: pc.id,
+                    source: pc.fromExecutableId,
+                    target: pc.toExecutableId,
+                    type: 'precedence',
+                    data: pc,
+                }));
+
+                webviewPanel.webview.postMessage({
+                    type: 'loadModel',
+                    model: currentModel,
+                    nodes,
+                    edges,
+                });
+            } catch (err) {
+                // Fallback: send raw text so the webview at least knows something happened
+                webviewPanel.webview.postMessage({
+                    type: 'update',
+                    text: document.getText(),
+                });
+                console.error('Failed to parse SSIS package:', err);
+            }
         }
 
         // Listen for document changes and sync to webview
         const changeDocumentSubscription = vscode.workspace.onDidChangeTextDocument(
             (e) => {
-                if (e.document.uri.toString() === document.uri.toString()) {
-                    updateWebview();
+                if (e.document.uri.toString() === document.uri.toString() && !suppressDocChange) {
+                    parseAndSendModel();
                 }
             }
         );
@@ -92,7 +162,7 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
                     return;
                 }
                 case 'ready': {
-                    updateWebview();
+                    parseAndSendModel();
                     return;
                 }
 
@@ -138,8 +208,41 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
 
                 // Canvas state changes
                 case 'canvasStateChanged': {
-                    // Update the document with the new state
-                    // In production, serialize the full model back to XML
+                    if (!currentModel) { return; }
+
+                    // Update executables from node positions/data
+                    if (message.nodes) {
+                        currentModel.executables = (message.nodes as Node[]).map((n) => ({
+                            ...n.data,
+                            x: n.position?.x ?? n.data.x,
+                            y: n.position?.y ?? n.data.y,
+                        }));
+                    }
+
+                    // Update precedence constraints from edge data
+                    if (message.edges) {
+                        currentModel.precedenceConstraints = (message.edges as Edge[])
+                            .filter((e) => e.data)
+                            .map((e) => e.data);
+                    }
+
+                    // Update connection managers if present
+                    if (message.connectionManagers) {
+                        currentModel.connectionManagers = message.connectionManagers;
+                    }
+
+                    // Update variables if present
+                    if (message.variables) {
+                        currentModel.variables = message.variables;
+                    }
+
+                    // Update parameters if present
+                    if (message.parameters) {
+                        currentModel.parameters = message.parameters;
+                    }
+
+                    await serializeToDocument();
+                    this.onConnectionManagersChanged?.();
                     return;
                 }
 
@@ -154,7 +257,7 @@ export class DtsxEditorProvider implements vscode.CustomTextEditorProvider {
         });
 
         // Send initial content once webview is ready
-        updateWebview();
+        parseAndSendModel();
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {

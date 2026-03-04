@@ -91,6 +91,10 @@ export interface SavedCatalogConnection {
   port: number;
   authType: 'sql' | 'windows';
   user?: string;
+  /** When true the connection was made via a raw connection string. */
+  rawConnectionString?: boolean;
+  encrypt?: boolean;
+  trustServerCertificate?: boolean;
   /** Password is stored in VS Code SecretStorage, keyed by id */
 }
 
@@ -135,6 +139,78 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
 
   /** Prompt the user to add a new catalog connection. */
   async addConnection(): Promise<void> {
+    // Ask the user how they want to connect
+    const method = await vscode.window.showQuickPick(
+      [
+        { label: 'Server Details', description: 'Provide server, port, and credentials', value: 'details' as const },
+        { label: 'Connection String', description: 'Paste a full connection string', value: 'connectionString' as const },
+      ],
+      { placeHolder: 'How would you like to connect?' },
+    );
+    if (!method) { return; }
+
+    if (method.value === 'connectionString') {
+      return this._addConnectionFromString();
+    }
+    return this._addConnectionFromDetails();
+  }
+
+  /** Connect using a raw connection string. */
+  private async _addConnectionFromString(): Promise<void> {
+    const connStr = await vscode.window.showInputBox({
+      prompt: 'Connection string (e.g. Server=myserver;Database=master;User Id=sa;Password=...;)',
+      placeHolder: 'Server=localhost;Integrated Security=true;',
+      password: false,
+    });
+    if (!connStr) { return; }
+
+    // Derive a display name from the connection string
+    const serverMatch = connStr.match(/(?:Server|Data Source)\s*=\s*([^;]+)/i);
+    const displayName = serverMatch ? serverMatch[1].trim() : 'Custom Connection';
+
+    const id = `ssis-conn-${Date.now()}`;
+    const conn: SavedCatalogConnection = {
+      id,
+      serverName: displayName,
+      port: 1433,
+      authType: connStr.match(/Integrated Security\s*=\s*(true|sspi|yes)/i) ? 'windows' : 'sql',
+      rawConnectionString: true,
+    };
+
+    // Store the full connection string in SecretStorage (may contain password)
+    await this.context.secrets.store(id, connStr);
+
+    // Attempt to connect
+    const client = new TdsClient();
+    let caps: ServerCapabilities;
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Connecting to ${displayName}…` },
+        async () => {
+          await client.connectWithConnectionString(connStr);
+          caps = await client.detectCapabilities();
+        },
+      );
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Failed to connect: ${err.message ?? err}`);
+      return;
+    }
+
+    this._clients.set(id, client);
+    this._capabilities.set(id, caps!);
+    this._connections.push(conn);
+    await this._saveConnections();
+    this.refresh();
+
+    const models: string[] = [];
+    if (caps!.hasSsisdb) { models.push('SSISDB Catalog'); }
+    if (caps!.hasMsdbStore) { models.push('MSDB Package Store'); }
+    const modelsDesc = models.length > 0 ? ` (${models.join(', ')})` : ' (no SSIS stores detected)';
+    vscode.window.showInformationMessage(`Connected to ${displayName}${modelsDesc}`);
+  }
+
+  /** Connect using individual fields (server, port, auth, etc.) */
+  private async _addConnectionFromDetails(): Promise<void> {
     const serverName = await vscode.window.showInputBox({
       prompt: 'SQL Server hostname or IP',
       placeHolder: 'localhost',
@@ -166,6 +242,25 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
       if (password === undefined) { return; }
     }
 
+    // Encryption & certificate options
+    const encryptPick = await vscode.window.showQuickPick(
+      [
+        { label: 'Yes (default)', description: 'Encrypt the connection', value: true },
+        { label: 'No', description: 'Do not encrypt', value: false },
+      ],
+      { placeHolder: 'Encrypt connection?' },
+    );
+    const encrypt = encryptPick?.value ?? true;
+
+    const trustCertPick = await vscode.window.showQuickPick(
+      [
+        { label: 'Yes', description: 'Trust the server certificate without validation', value: true },
+        { label: 'No (default)', description: 'Validate the server certificate', value: false },
+      ],
+      { placeHolder: 'Trust Server Certificate?' },
+    );
+    const trustServerCertificate = trustCertPick?.value ?? false;
+
     const id = `ssis-conn-${Date.now()}`;
     const conn: SavedCatalogConnection = {
       id,
@@ -173,6 +268,8 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
       port,
       authType: authType.value,
       user,
+      encrypt,
+      trustServerCertificate,
     };
 
     // Store password in SecretStorage
@@ -194,6 +291,8 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
             trustedConnection: authType.value === 'windows',
             user,
             password,
+            encrypt,
+            trustServerCertificate,
           };
           await client.connect(config);
           caps = await client.detectCapabilities();
@@ -239,17 +338,85 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
     const conn = this._connections.find((c) => c.id === connectionId);
     if (!conn) { return undefined; }
 
-    const password = await this.context.secrets.get(conn.id);
+    return this._connectWithRetry(conn);
+  }
+
+  /**
+   * Attempt to connect using stored credentials.
+   * If the password/connection-string is missing from SecretStorage, or if
+   * the connection attempt fails, prompt the user to re-enter credentials
+   * so they don't have to delete and re-add the connection.
+   */
+  private async _connectWithRetry(
+    conn: SavedCatalogConnection,
+    isRetry = false,
+  ): Promise<TdsClient | undefined> {
     const client = new TdsClient();
-    const config: TdsConnectionConfig = {
-      server: conn.serverName,
-      port: conn.port,
-      database: 'master',
-      trustedConnection: conn.authType === 'windows',
-      user: conn.user,
-      password: password ?? undefined,
-    };
-    await client.connect(config);
+
+    try {
+      if (conn.rawConnectionString) {
+        let connStr = await this.context.secrets.get(conn.id);
+        if (!connStr) {
+          connStr = await vscode.window.showInputBox({
+            prompt: `Connection string for "${conn.serverName}" was not found in secure storage. Please re-enter it.`,
+            placeHolder: 'Server=localhost;Integrated Security=true;',
+            password: false,
+            ignoreFocusOut: true,
+          });
+          if (!connStr) { return undefined; }
+          await this.context.secrets.store(conn.id, connStr);
+        }
+        await client.connectWithConnectionString(connStr);
+      } else {
+        let password = await this.context.secrets.get(conn.id);
+
+        // If SQL auth and password is missing, prompt once
+        if (conn.authType === 'sql' && password === undefined) {
+          password = await vscode.window.showInputBox({
+            prompt: `Password for ${conn.user}@${conn.serverName} (not found in secure storage)`,
+            password: true,
+            ignoreFocusOut: true,
+          });
+          if (password === undefined) { return undefined; }
+          await this.context.secrets.store(conn.id, password);
+        }
+
+        const config: TdsConnectionConfig = {
+          server: conn.serverName,
+          port: conn.port,
+          database: 'master',
+          trustedConnection: conn.authType === 'windows',
+          user: conn.user,
+          password: password ?? undefined,
+          encrypt: conn.encrypt,
+          trustServerCertificate: conn.trustServerCertificate,
+        };
+        await client.connect(config);
+      }
+    } catch (err: any) {
+      // On first failure, offer to re-enter credentials
+      if (!isRetry && conn.authType === 'sql') {
+        const action = await vscode.window.showErrorMessage(
+          `Failed to connect to ${conn.serverName}: ${err.message ?? err}`,
+          'Re-enter Password',
+          'Cancel',
+        );
+        if (action === 'Re-enter Password') {
+          const newPassword = await vscode.window.showInputBox({
+            prompt: `Password for ${conn.user}@${conn.serverName}`,
+            password: true,
+            ignoreFocusOut: true,
+          });
+          if (newPassword !== undefined) {
+            await this.context.secrets.store(conn.id, newPassword);
+            return this._connectWithRetry(conn, true);
+          }
+        }
+        return undefined;
+      }
+      throw err;
+    }
+
     this._clients.set(conn.id, client);
 
     // Detect capabilities on reconnect if not cached
@@ -261,6 +428,54 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
     }
 
     return client;
+  }
+
+  /** Reconnect an existing saved connection, prompting for credentials. */
+  async reconnect(connectionId: string): Promise<void> {
+    const conn = this._connections.find((c) => c.id === connectionId);
+    if (!conn) { return; }
+
+    // Disconnect the existing client if any
+    const existing = this._clients.get(connectionId);
+    if (existing) {
+      try { await existing.disconnect(); } catch { /* ignore */ }
+      this._clients.delete(connectionId);
+    }
+    this._capabilities.delete(connectionId);
+
+    // Prompt for new credentials
+    if (conn.rawConnectionString) {
+      const connStr = await vscode.window.showInputBox({
+        prompt: `Connection string for "${conn.serverName}"`,
+        placeHolder: 'Server=localhost;Integrated Security=true;',
+        password: false,
+        ignoreFocusOut: true,
+      });
+      if (!connStr) { return; }
+      await this.context.secrets.store(conn.id, connStr);
+    } else if (conn.authType === 'sql') {
+      const password = await vscode.window.showInputBox({
+        prompt: `Password for ${conn.user}@${conn.serverName}`,
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (password === undefined) { return; }
+      await this.context.secrets.store(conn.id, password);
+    }
+
+    // Attempt reconnection
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Reconnecting to ${conn.serverName}…` },
+        async () => {
+          await this.getClient(connectionId);
+        },
+      );
+      vscode.window.showInformationMessage(`Reconnected to ${conn.serverName}.`);
+    } catch (err: any) {
+      vscode.window.showErrorMessage(`Reconnect failed: ${err.message ?? err}`);
+    }
+    this.refresh();
   }
 
   /** Get detected capabilities for a connection. */
@@ -297,7 +512,9 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
           vscode.TreeItemCollapsibleState.Collapsed,
           { connectionId: conn.id },
         );
-        serverItem.description = conn.authType === 'sql' ? conn.user : '(Windows)';
+        serverItem.description = conn.rawConnectionString
+          ? '(connection string)'
+          : conn.authType === 'sql' ? conn.user : '(Windows)';
         items.push(serverItem);
       }
 
