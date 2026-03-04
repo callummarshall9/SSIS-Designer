@@ -17,6 +17,12 @@ const CONNECTION_TYPE_ICONS: Record<string, string> = {
   MSOLAP: 'graph-line',
 };
 
+// Custom SVG icons for connection types
+const CONNECTION_TYPE_SVG: Record<string, string> = {
+  OLEDB: 'connection',
+  'ADO.NET': 'connection',
+};
+
 // ---------------------------------------------------------------------------
 // Tree Items
 // ---------------------------------------------------------------------------
@@ -44,6 +50,11 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
     this._onDidChangeTreeData.event;
 
   private _connectionManagers: ConnectionManager[] = [];
+  private _extensionUri: vscode.Uri | undefined;
+
+  constructor(extensionUri?: vscode.Uri) {
+    this._extensionUri = extensionUri;
+  }
 
   /**
    * Update the connection managers shown in the tree.
@@ -153,14 +164,21 @@ export class ConnectionTreeProvider implements vscode.TreeDataProvider<Connectio
 
     return Promise.resolve(
       this._connectionManagers.map((cm) => {
-        const iconName = CONNECTION_TYPE_ICONS[cm.creationName] ?? 'plug';
         const item = new ConnectionTreeItem(
           cm.objectName,
           vscode.TreeItemCollapsibleState.Collapsed,
           'connectionManager',
           cm
         );
-        item.iconPath = new vscode.ThemeIcon(iconName);
+        // Use custom SVG if available, otherwise fall back to codicon
+        const svgName = CONNECTION_TYPE_SVG[cm.creationName];
+        if (svgName && this._extensionUri) {
+          const iconUri = vscode.Uri.joinPath(this._extensionUri, 'media', 'icons', `${svgName}.svg`);
+          item.iconPath = { light: iconUri, dark: iconUri };
+        } else {
+          const iconName = CONNECTION_TYPE_ICONS[cm.creationName] ?? 'plug';
+          item.iconPath = new vscode.ThemeIcon(iconName);
+        }
         item.tooltip = `${cm.creationName}: ${cm.objectName}`;
         item.description = cm.creationName;
         return item;

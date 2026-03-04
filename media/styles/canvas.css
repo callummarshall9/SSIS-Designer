@@ -865,6 +865,10 @@ textarea:focus-visible {
     transition: background-color 0.1s;
 }
 
+.ssis-toolbar__btn svg {
+    flex-shrink: 0;
+}
+
 .ssis-toolbar__btn:hover {
     background: var(--hover-bg);
 }

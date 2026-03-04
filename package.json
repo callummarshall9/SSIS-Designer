@@ -33,31 +33,51 @@
     "commands": [
       {
         "command": "ssis.newPackage",
-        "title": "SSIS: New Package"
+        "title": "SSIS: New Package",
+        "icon": {
+          "light": "media/icons/new-package.svg",
+          "dark": "media/icons/new-package.svg"
+        }
       },
       {
         "command": "ssis.deployProject",
         "title": "SSIS: Deploy Project",
-        "icon": "$(cloud-upload)"
+        "icon": {
+          "light": "media/icons/deploy.svg",
+          "dark": "media/icons/deploy.svg"
+        }
       },
       {
         "command": "ssis.executePackage",
         "title": "SSIS: Execute Package",
-        "icon": "$(play)"
+        "icon": {
+          "light": "media/icons/execute.svg",
+          "dark": "media/icons/execute.svg"
+        }
       },
       {
         "command": "ssis.validatePackage",
         "title": "SSIS: Validate Package",
-        "icon": "$(check)"
+        "icon": {
+          "light": "media/icons/validate.svg",
+          "dark": "media/icons/validate.svg"
+        }
       },
       {
         "command": "ssis.exportIspac",
-        "title": "SSIS: Export ISPAC"
+        "title": "SSIS: Export ISPAC",
+        "icon": {
+          "light": "media/icons/export-ispac.svg",
+          "dark": "media/icons/export-ispac.svg"
+        }
       },
       {
         "command": "ssis.connectCatalog",
         "title": "SSIS: Connect to SSIS Catalog",
-        "icon": "$(plug)"
+        "icon": {
+          "light": "media/icons/connection.svg",
+          "dark": "media/icons/connection.svg"
+        }
       },
       {
         "command": "ssis.refreshCatalog",
@@ -117,7 +137,10 @@
       {
         "command": "ssis.viewExecutionHistory",
         "title": "SSIS: View Execution History",
-        "icon": "$(history)"
+        "icon": {
+          "light": "media/icons/history.svg",
+          "dark": "media/icons/history.svg"
+        }
       },
       {
         "command": "ssis.viewExecutionDetails",
@@ -166,14 +189,19 @@
       ],
       "view/title": [
         {
-          "command": "ssis.connectCatalog",
+          "command": "ssis.newPackage",
           "when": "view == ssisDesigner.catalogExplorer",
           "group": "navigation@1"
         },
         {
-          "command": "ssis.refreshCatalog",
+          "command": "ssis.connectCatalog",
           "when": "view == ssisDesigner.catalogExplorer",
           "group": "navigation@2"
+        },
+        {
+          "command": "ssis.refreshCatalog",
+          "when": "view == ssisDesigner.catalogExplorer",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [

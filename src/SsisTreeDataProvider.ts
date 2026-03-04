@@ -23,6 +23,9 @@ export enum SsisTreeItemType {
 // ---------------------------------------------------------------------------
 
 export class SsisTreeItem extends vscode.TreeItem {
+  /** Set by SsisTreeDataProvider on construction so icons resolve correctly. */
+  static extensionUri: vscode.Uri | undefined;
+
   constructor(
     public readonly label: string,
     public readonly itemType: SsisTreeItemType,
@@ -35,7 +38,24 @@ export class SsisTreeItem extends vscode.TreeItem {
   }
 
   private _applyIcon(): void {
-    const iconMap: Record<SsisTreeItemType, string> = {
+    // Custom SVG icons in media/icons/
+    const svgIconMap: Partial<Record<SsisTreeItemType, string>> = {
+      [SsisTreeItemType.Server]: 'server',
+      [SsisTreeItemType.Catalog]: 'connection',
+      [SsisTreeItemType.Folder]: 'folder',
+      [SsisTreeItemType.Project]: 'project',
+      [SsisTreeItemType.Package]: 'package',
+      [SsisTreeItemType.Environment]: 'environment',
+      [SsisTreeItemType.ConnectPrompt]: 'connection',
+    };
+    const svgName = svgIconMap[this.itemType];
+    if (svgName && SsisTreeItem.extensionUri) {
+      const iconUri = vscode.Uri.joinPath(SsisTreeItem.extensionUri, 'media', 'icons', `${svgName}.svg`);
+      this.iconPath = { light: iconUri, dark: iconUri };
+      return;
+    }
+    // Fallback to built-in codicons
+    const codiconMap: Record<SsisTreeItemType, string> = {
       [SsisTreeItemType.Server]: 'server',
       [SsisTreeItemType.Catalog]: 'database',
       [SsisTreeItemType.Folder]: 'folder',
@@ -47,7 +67,7 @@ export class SsisTreeItem extends vscode.TreeItem {
       [SsisTreeItemType.EnvironmentVariable]: 'key',
       [SsisTreeItemType.ConnectPrompt]: 'plug',
     };
-    this.iconPath = new vscode.ThemeIcon(iconMap[this.itemType] ?? 'circle-outline');
+    this.iconPath = new vscode.ThemeIcon(codiconMap[this.itemType] ?? 'circle-outline');
   }
 }
 
@@ -79,6 +99,7 @@ export class SsisTreeDataProvider implements vscode.TreeDataProvider<SsisTreeIte
   private _connections: SavedCatalogConnection[] = [];
 
   constructor(private readonly context: vscode.ExtensionContext) {
+    SsisTreeItem.extensionUri = context.extensionUri;
     this._loadConnections();
   }
 

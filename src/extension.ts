@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
 
     // Register the Connection Manager tree view
-    const connectionTreeProvider = new ConnectionTreeProvider();
+    const connectionTreeProvider = new ConnectionTreeProvider(context.extensionUri);
     context.subscriptions.push(
         vscode.window.registerTreeDataProvider('ssisDesigner.connectionManager', connectionTreeProvider)
     );

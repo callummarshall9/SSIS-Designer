@@ -24,6 +24,75 @@ import {
 import { DataFlowModel } from '../src/models/DataFlowModel';
 
 // ---------------------------------------------------------------------------
+// Toolbar SVG Icons (16×16, uses currentColor to match VS Code themes)
+// ---------------------------------------------------------------------------
+
+const iconProps = { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, style: { verticalAlign: 'middle', marginRight: 3 } };
+
+const IconNewPackage = () => (
+  <svg {...iconProps}>
+    <path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z"/>
+    <polyline points="9,1 9,5 13,5"/>
+    <line x1="8" y1="8.5" x2="8" y2="12.5"/>
+    <line x1="6" y1="10.5" x2="10" y2="10.5"/>
+  </svg>
+);
+
+const IconValidate = () => (
+  <svg {...iconProps}>
+    <path d="M8 1L2 3.5v4c0 3.5 2.5 6.5 6 7.5 3.5-1 6-4 6-7.5v-4L8 1z"/>
+    <polyline points="5.5,8 7.2,10 10.5,6.5"/>
+  </svg>
+);
+
+const IconExportIspac = () => (
+  <svg {...iconProps}>
+    <rect x="1" y="3" width="14" height="11" rx="1"/>
+    <line x1="1" y1="6.5" x2="15" y2="6.5"/>
+    <line x1="6.5" y1="6.5" x2="6.5" y2="3"/>
+    <line x1="9.5" y1="6.5" x2="9.5" y2="3"/>
+    <line x1="8" y1="8.5" x2="8" y2="12"/>
+    <polyline points="6,10.5 8,12.5 10,10.5"/>
+  </svg>
+);
+
+const IconDeploy = () => (
+  <svg {...iconProps}>
+    <path d="M4.5 12.5h8a3 3 0 0 0 .5-5.96A4.5 4.5 0 0 0 4.34 5a3.5 3.5 0 0 0 .16 7.5z"/>
+    <line x1="8" y1="8" x2="8" y2="12"/>
+    <polyline points="6,9.5 8,7.5 10,9.5"/>
+  </svg>
+);
+
+const IconExecute = () => (
+  <svg {...iconProps} fill="currentColor" stroke="none">
+    <path d="M4 2.5v11l9-5.5L4 2.5z"/>
+  </svg>
+);
+
+const IconConnection = () => (
+  <svg {...iconProps}>
+    <ellipse cx="8" cy="4" rx="5.5" ry="2"/>
+    <path d="M2.5 4v8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2V4"/>
+    <path d="M2.5 8c0 1.1 2.46 2 5.5 2s5.5-.9 5.5-2"/>
+  </svg>
+);
+
+const IconHistory = () => (
+  <svg {...iconProps}>
+    <circle cx="8" cy="8" r="6.5"/>
+    <polyline points="8,4.5 8,8 11,9.5"/>
+  </svg>
+);
+
+const IconBack = () => (
+  <svg {...iconProps}>
+    <polyline points="6,3.5 2,8 6,12.5"/>
+    <path d="M2 8h10a2 2 0 0 1 2 2v2"/>
+  </svg>
+);
+
+// ---------------------------------------------------------------------------
 // VS Code API
 // ---------------------------------------------------------------------------
 
@@ -376,7 +445,7 @@ function App() {
               onClick={handleBackToControlFlow}
               title="Back to Control Flow"
             >
-              ◀ Control Flow
+              <IconBack /> Control Flow
             </button>
           )}
 
@@ -386,21 +455,21 @@ function App() {
             onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.newPackage' })}
             title="Create a new SSIS package"
           >
-            📄 New Package
+            <IconNewPackage /> New Package
           </button>
           <button
             className="ssis-toolbar__btn"
             onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.validatePackage' })}
             title="Validate the current package"
           >
-            ✅ Validate
+            <IconValidate /> Validate
           </button>
           <button
             className="ssis-toolbar__btn"
             onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.exportIspac' })}
             title="Export project as .ispac"
           >
-            📦 Export ISPAC
+            <IconExportIspac /> Export ISPAC
           </button>
 
           <div className="ssis-toolbar__separator" />
@@ -411,14 +480,14 @@ function App() {
             onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.deployProject' })}
             title="Deploy project to SSISDB"
           >
-            🚀 Deploy
+            <IconDeploy /> Deploy
           </button>
           <button
             className="ssis-toolbar__btn"
             onClick={() => getVsCodeApi()?.postMessage({ type: 'command', command: 'ssis.executePackage' })}
             title="Execute package on server (F5)"
           >
-            ▶ Execute
+            <IconExecute /> Execute
           </button>
 
           <div className="ssis-toolbar__separator" />
@@ -429,7 +498,7 @@ function App() {
             onClick={() => setConnMgrVisible(true)}
             title="Connection Managers (Ctrl+Shift+C)"
           >
-            🔗 Connections
+            <IconConnection /> Connections
           </button>
           {connectedToServer && (
             <button
@@ -437,7 +506,7 @@ function App() {
               onClick={() => setExecutionHistoryVisible(true)}
               title="View Execution History"
             >
-              📋 History
+              <IconHistory /> History
             </button>
           )}
         </div>

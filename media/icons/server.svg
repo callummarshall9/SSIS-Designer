@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Server rack -->
+  <rect x="2" y="1.5" width="12" height="4" rx="1"/>
+  <rect x="2" y="6.5" width="12" height="4" rx="1"/>
+  <rect x="2" y="11.5" width="12" height="3" rx="1"/>
+  <!-- Status dots -->
+  <circle cx="4.5" cy="3.5" r="0.6" fill="currentColor" stroke="none"/>
+  <circle cx="4.5" cy="8.5" r="0.6" fill="currentColor" stroke="none"/>
+  <circle cx="4.5" cy="13" r="0.6" fill="currentColor" stroke="none"/>
+  <!-- Vents -->
+  <line x1="8" y1="2.5" x2="12" y2="2.5"/>
+  <line x1="8" y1="4.5" x2="12" y2="4.5"/>
+  <line x1="8" y1="7.5" x2="12" y2="7.5"/>
+  <line x1="8" y1="9.5" x2="12" y2="9.5"/>
+</svg>
